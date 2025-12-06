@@ -1,0 +1,51 @@
+{
+    "name": "simple-html-parser",
+    "version": "2.0.0",
+    "description": "Lightweight HTML/CSS parser with DOM-like manipulation.",
+    "main": "src/simple-html-parser.js",
+    "type": "module",
+    "exports": {
+        ".": "./src/simple-html-parser.js"
+    },
+    "files": [
+        "src/",
+        "README.md",
+        "LICENSE.txt"
+    ],
+    "scripts": {
+        "build": "rollup -c",
+        "lint": "eslint src/**/*.js",
+        "prepublishOnly": "npm test",
+        "test": "node --test test/*.test.js"
+    },
+    "keywords": [
+        "html",
+        "parser",
+        "css",
+        "dom",
+        "manipulation",
+        "tree",
+        "lightweight"
+    ],
+    "author": "Christopher Keers",
+    "license": "Common Clause - MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/caboodle-tech/simple-html-parser"
+    },
+    "bugs": {
+        "url": "https://github.com/caboodle-tech/simple-html-parser/issues"
+    },
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "devDependencies": {
+        "@html-eslint/eslint-plugin": "^0.50.0",
+        "@html-eslint/parser": "^0.50.0",
+        "@rollup/plugin-terser": "^0.4.4",
+        "eslint": "^9.39.1",
+        "eslint-plugin-jsonc": "^2.21.0",
+        "jsonc-eslint-parser": "^2.4.1",
+        "rollup": "^4.53.3"
+    }
+}
