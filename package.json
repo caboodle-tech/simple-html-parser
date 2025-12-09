@@ -1,6 +1,6 @@
 {
     "name": "@caboodle-tech/simple-html-parser",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Lightweight HTML/CSS parser with DOM-like manipulation.",
     "publishConfig": {
         "access": "public"
@@ -48,7 +48,7 @@
         "@rollup/plugin-terser": "^0.4.4",
         "eslint": "^9.39.1",
         "eslint-plugin-jsonc": "^2.21.0",
-        "jsonc-eslint-parser": "^2.4.1",
+        "jsonc-eslint-parser": "^2.4.2",
         "rollup": "^4.53.3"
     }
 }

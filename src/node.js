@@ -1,3 +1,4 @@
+/* eslint-disable max-len */
 const REGEX = {
     notSelector: /:not\(([^)]+)\)/g,
     queryAttributeMatches: /\[([^\]]+)\]/g,
@@ -9,7 +10,6 @@ const REGEX = {
     whitespace: /\s+/
 };
 
-// eslint-disable-next-line max-len
 const VOID_ELEMS = ['img', 'br', 'hr', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr'];
 
 /**
@@ -259,55 +259,422 @@ class Node {
     }
 
     /**
-     * Converts CSS node tree back to CSS string format.
+     * Finds at-rules (@media, @keyframes, @supports, etc.) in the CSS tree.
+     * @param {string|null} [name=null] - At-rule name to filter by (e.g., 'media', 'keyframes'), or null for all at-rules
+     * @returns {Node[]} Array of at-rule nodes
+     *
+     * @example
+     * // Find all @media rules
+     * const mediaRules = style.cssFindAtRules('media');
+     *
+     * @example
+     * // Find all at-rules
+     * const allAtRules = style.cssFindAtRules();
+     */
+    cssFindAtRules(name = null) {
+        const results = [];
+
+        const searchRules = (node) => {
+            if (node.type === 'css-at-rule') {
+                if (name === null || node.cssName === name) {
+                    results.push(node);
+                }
+            }
+
+            // Recursively search children
+            if (node.children) {
+                for (const child of node.children) {
+                    searchRules(child);
+                }
+            }
+        };
+
+        searchRules(this);
+        return results;
+    }
+
+    /**
+     * Finds CSS rules that match a given selector.
+     * @param {string} selector - CSS selector to search for (e.g., '.card', '#wrapper', 'div')
+     * @param {Object} [options={}] - Search options
+     * @param {boolean} [options.includeCompound=true] - Whether to include compound selectors (e.g., '.card.active' when searching for '.card')
+     * @param {boolean} [options.shallow=true] - Whether to include only direct rules (excludes nested children and descendant selectors)
+     * @returns {Node[]} Array of matching CSS rule nodes
+     *
+     * @example
+     * // Find all rules for .card (includes .card.active)
+     * const cardRules = style.cssFindRules('.card');
+     *
+     * @example
+     * // Find only exact .card rules (excludes .card.active)
+     * const exactCard = style.cssFindRules('.card', { includeCompound: false });
+     *
+     * @example
+     * // Find #wrapper rules, excluding nested rules like #wrapper div
+     * const wrapperOnly = style.cssFindRules('#wrapper', { shallow: true });
+     */
+    cssFindRules(selector, options = {}) {
+        const { includeCompound = true, shallow = false } = options;
+        const results = [];
+
+        const searchRules = (node) => {
+            if (node.type === 'css-rule') {
+                const matches = includeCompound ?
+                    node.cssSelector.includes(selector) :  // Loose match
+                    node.cssSelector.split(',').map((s) => { return s.trim(); }).includes(selector);  // Exact match
+
+                if (matches) {
+                    // Clone the node if we need to strip nested rules
+                    if (shallow) {
+                        // Create a shallow copy with nested children removed
+                        const clonedNode = Object.create(Object.getPrototypeOf(node));
+                        Object.assign(clonedNode, node);
+                        clonedNode.children = node.children.filter((child) => { return child.type !== 'css-rule' && child.type !== 'css-at-rule'; }
+                        );
+                        results.push(clonedNode);
+                    } else {
+                        results.push(node);
+                    }
+                }
+            }
+
+            // Continue searching children if not filtering for direct rules only
+            // or if we need to search deeper in the tree
+            if (node.children) {
+                for (const child of node.children) {
+                    searchRules(child);
+                }
+            }
+        };
+
+        searchRules(this);
+        return results;
+    }
+
+    /**
+     * Finds a specific CSS variable (custom property) by name.
+     * @param {string} name - Variable name (with or without '--' prefix)
+     * @param {Node|null} [rule=null] - Specific rule to search in, or null to search all rules
+     * @returns {string|null} Variable value or null if not found
+     *
+     * @example
+     * // Find --primary-color
+     * const primary = style.cssFindVariable('--primary-color');
+     *
+     * @example
+     * // Find variable without -- prefix
+     * const spacing = style.cssFindVariable('spacing');
+     */
+    cssFindVariable(name, rule = null) {
+        // Ensure name has -- prefix
+        const varName = name.startsWith('--') ? name : `--${name}`;
+
+        if (rule) {
+            // Search only in specified rule
+            return rule.cssDeclarations?.[varName] || null;
+        }
+
+        // Search through all rules
+        const searchRule = (node) => {
+            if (node.cssDeclarations && node.cssDeclarations[varName]) {
+                return node.cssDeclarations[varName];
+            }
+
+            if (node.children) {
+                for (const child of node.children) {
+                    const found = searchRule(child);
+                    if (found) return found;
+                }
+            }
+
+            return null;
+        };
+
+        return searchRule(this);
+    }
+
+    /**
+     * Finds all CSS variables (custom properties) in the CSS tree with their scope paths.
+     * @param {Object} [options={}] - Options for variable extraction
+     * @param {boolean} [options.includeRoot=false] - Whether to include 'root' in scope path for root-level variables
+     * @returns {Array<{name: string, value: string, scope: string, rule: Node}>} Array of variable objects with metadata
+     *
+     * @example
+     * // Get all CSS variables
+     * const vars = style.cssFindVariables();
+     * // [{name: '--primary', value: '#007bff', scope: ':root', rule: Node}]
+     */
+    cssFindVariables(options = {}) {
+        const { includeRoot = false } = options;
+        const variables = [];
+
+        const extractVars = (node, scopePath = '') => {
+            // Build scope path
+            let currentScope = scopePath;
+
+            if (node.type === 'css-rule') {
+                currentScope = scopePath ? `${scopePath} > ${node.cssSelector}` : node.cssSelector;
+            } else if (node.type === 'css-at-rule') {
+                const atRuleStr = `@${node.cssName}${node.cssParams ? ` ${node.cssParams}` : ''}`;
+                currentScope = scopePath ? `${scopePath} > ${atRuleStr}` : atRuleStr;
+            }
+
+            // Extract variables from declarations
+            if (node.cssDeclarations) {
+                for (const [prop, value] of Object.entries(node.cssDeclarations)) {
+                    if (prop.startsWith('--')) {
+                        // Clean up scope path (remove 'root' if at root level and option says so)
+                        let finalScope = currentScope;
+                        if (!includeRoot && node.parent && node.parent.type === 'css-root') {
+                            // This is a top-level rule, check if it's :root
+                            if (node.cssSelector === ':root') {
+                                finalScope = ':root';
+                            } else {
+                                finalScope = node.cssSelector;
+                            }
+                        }
+
+                        variables.push({
+                            name: prop,
+                            value,
+                            scope: finalScope,
+                            rule: node
+                        });
+                    }
+                }
+            }
+
+            // Recursively process children
+            if (node.children) {
+                for (const child of node.children) {
+                    extractVars(child, currentScope);
+                }
+            }
+        };
+
+        // Start extraction from this node
+        extractVars(this);
+
+        return variables;
+    }
+
+    /**
+     * Converts CSS rule nodes back to a CSS string with flexible formatting options.
+     *
+     * Behavior:
+     * - If called with node(s): Converts those specific nodes
+     * - If called on HTML node: Finds and combines all <style> tags
+     * - If called on CSS/style node: Converts this node's CSS tree
+     *
+     * @param {Node|Node[]|Object} [nodesOrOptions] - CSS nodes to convert, or options object if converting this node
+     * @param {Object} [options={}] - Formatting options (only when first param is nodes)
+     *
+     * @param {boolean} [options.includeComments=false] - Whether to include CSS comments in output
+     * @param {boolean} [options.includeNestedRules=true] - Whether to include nested rules within parent rules
+     * @param {boolean} [options.flattenNested=false] - Whether to flatten nested rules into separate top-level rules with full selectors (e.g., ".card .title" instead of nested)
+     * @param {boolean} [options.includeBraces=true] - Whether to include { } around declarations
+     * @param {boolean} [options.includeSelector=true] - Whether to include the selector before declarations
+     * @param {boolean} [options.combineDeclarations=true] - Whether to merge declarations from multiple rules with the same selector
+     * @param {boolean} [options.singleLine=false] - Whether to output CSS on a single line instead of multi-line
+     * @param {number} [options.indent=0] - Indentation level in spaces for multi-line output
+     *
+     * @returns {string} Formatted CSS string
+     *
+     * @example
+     * // Convert specific rules
+     * const rules = style.cssFindRules('.card');
+     * const css = style.cssToString(rules, { includeNestedRules: false });
+     *
+     * @example
+     * // Convert entire style tag
+     * const style = dom.querySelector('style');
+     * const css = style.cssToString({ flattenNested: true });
+     *
+     * @example
+     * // Combine all style tags in document
+     * const css = dom.cssToString({ includeComments: false });
+     *
+     * @example
+     * // Get just declarations (no selector/braces)
+     * const css = style.cssToString(rules, {
+     *   includeSelector: false,
+     *   includeBraces: false
+     * });
+     * // "background: white; padding: 1rem;"
+     */
+    cssToString(nodesOrOptions, options = {}) {
+        // Determine if first parameter is nodes or options
+        let nodesToConvert;
+        let finalOptions;
+
+        if (nodesOrOptions === undefined || (typeof nodesOrOptions === 'object' && !Array.isArray(nodesOrOptions) && !nodesOrOptions.type)) {
+            // First param is options (or undefined) - convert this node's CSS
+            finalOptions = nodesOrOptions || {};
+
+            if (this.type === 'root' || this.type === 'tag-open') {
+                // HTML node - find all style tags
+                const styleTags = this.querySelectorAll('style');
+                nodesToConvert = styleTags.flatMap((tag) => { return tag.children; });
+            } else {
+                // CSS node - use this node's children as root
+                nodesToConvert = this.children || [this];
+            }
+        } else {
+            // First param is node(s) - convert those specific nodes
+            nodesToConvert = nodesOrOptions;
+            finalOptions = options;
+        }
+
+        // Extract options with defaults
+        const {
+            includeComments = false,
+            includeNestedRules = true,
+            flattenNested = false,
+            includeBraces = true,
+            includeSelector = true,
+            combineDeclarations = true,
+            singleLine = false,
+            indent = 0
+        } = finalOptions;
+
+        // Normalize nodes to array
+        const ruleArray = Array.isArray(nodesToConvert) ? nodesToConvert : [nodesToConvert];
+
+        // If not combining declarations, process each rule separately
+        if (!combineDeclarations && ruleArray.length > 1) {
+            let result = '';
+            for (const rule of ruleArray) {
+                result += this.cssToString(rule, { ...finalOptions, combineDeclarations: true });
+                if (!singleLine) {
+                    result += '\n';
+                }
+            }
+            return result.trimEnd();
+        }
+
+        // Combine declarations from all rules
+        const combinedDeclarations = {};
+        let combinedSelector = '';
+        const nestedChildren = [];
+
+        for (const rule of ruleArray) {
+            if (rule.type === 'css-rule') {
+                // Collect selector (use first rule's selector)
+                if (!combinedSelector) {
+                    combinedSelector = rule.cssSelector;
+                }
+
+                // Merge declarations
+                if (rule.cssDeclarations) {
+                    Object.assign(combinedDeclarations, rule.cssDeclarations);
+                }
+
+                // Collect nested rules if requested
+                if (includeNestedRules && rule.children) {
+                    for (const child of rule.children) {
+                        if (child.type === 'css-rule' || child.type === 'css-at-rule') {
+                            nestedChildren.push(child);
+                        }
+                    }
+                }
+            } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
+                // Handle CSS comments if requested
+                const spaces = singleLine ? '' : ' '.repeat(indent);
+                return `${spaces}/*${rule.content}*/`;
+            }
+        }
+
+        // Build the CSS string
+        const spaces = singleLine ? '' : ' '.repeat(indent);
+        const newline = singleLine ? ' ' : '\n';
+        let result = '';
+
+        // Add selector if requested
+        if (includeSelector && combinedSelector) {
+            result += `${spaces}${combinedSelector}`;
+        }
+
+        // Add opening brace if requested
+        if (includeBraces) {
+            result += includeSelector && combinedSelector ? ` {${newline}` : `{${newline}`;
+        }
+
+        // Add declarations
+        const declIndent = includeBraces && !singleLine ? indent + 4 : indent;
+        const declSpaces = singleLine ? '' : ' '.repeat(declIndent);
+
+        const declarationEntries = Object.entries(combinedDeclarations);
+        for (let i = 0; i < declarationEntries.length; i++) {
+            const [prop, value] = declarationEntries[i];
+            const isLast = i === declarationEntries.length - 1 && nestedChildren.length === 0;
+
+            if (singleLine) {
+                result += `${prop}: ${value};`;
+                if (!isLast) {
+                    result += ' ';
+                }
+            } else {
+                result += `${declSpaces}${prop}: ${value};${newline}`;
+            }
+        }
+
+        // Add nested rules if requested
+        if (includeNestedRules && nestedChildren.length > 0) {
+            for (const nested of nestedChildren) {
+                if (flattenNested && nested.type === 'css-rule') {
+                    // Flatten nested rules - build full selector path
+                    const fullSelector = `${combinedSelector} ${nested.cssSelector}`;
+                    const nestedWithFullSelector = { ...nested, cssSelector: fullSelector };
+
+                    if (singleLine) {
+                        result += ` ${this.cssToString(nestedWithFullSelector, { ...finalOptions, indent })}`;
+                    } else {
+                        result += `\n${this.cssToString(nestedWithFullSelector, { ...finalOptions, indent })}`;
+                    }
+                } else if (singleLine) {
+                    // Preserve nesting structure
+                    result += ` ${this.cssToString(nested, { ...finalOptions, indent: declIndent })}`;
+                } else {
+                    result += this.cssToString(nested, { ...finalOptions, indent: declIndent });
+                }
+            }
+        }
+
+        // Add closing brace if requested
+        if (includeBraces) {
+            if (singleLine) {
+                result += ' }';
+            } else {
+                result += `${spaces}}${newline}`;
+            }
+        }
+
+        return singleLine ? result : result.trimEnd();
+    }
+
+    /**
+     * Converts CSS tree nodes back to CSS string format.
+     * Used internally when converting style tags to HTML.
      * @param {Node[]} cssNodes - Array of CSS nodes to convert
-     * @param {number} indent - Indentation level
+     * @param {number} [indent=0] - Current indentation level
      * @returns {string} CSS string
+     * @private
      */
     #cssTreeToString(cssNodes, indent = 0) {
-        const spaces = '    '.repeat(indent);
         let css = '';
 
         for (const node of cssNodes) {
-            if (node.type === 'comment' && node.commentType === 'css') {
-                css += `${spaces}/* ${node.content} */\n`;
-            } else if (node.type === 'css-rule') {
-                css += `${spaces}${node.cssSelector} {\n`;
-
-                // Add declarations
-                if (node.cssDeclarations) {
-                    for (const [prop, value] of Object.entries(node.cssDeclarations)) {
-                        css += `${spaces}    ${prop}: ${value};\n`;
-                    }
-                }
-
-                // Add nested children
-                if (node.children && node.children.length > 0) {
-                    css += this.#cssTreeToString(node.children, indent + 1);
-                }
-
-                css += `${spaces}}\n`;
-            } else if (node.type === 'css-at-rule') {
-                css += `${spaces}@${node.cssName}`;
-                if (node.cssParams) {
-                    css += ` ${node.cssParams}`;
-                }
-
-                // Check if it's a statement-style at-rule (no block)
-                if (node.cssName === 'import' || node.cssName === 'charset' || node.cssName === 'namespace') {
-                    css += ';\n';
-                } else {
-                    css += ' {\n';
-
-                    // Add nested children
-                    if (node.children && node.children.length > 0) {
-                        css += this.#cssTreeToString(node.children, indent + 1);
-                    }
-
-                    css += `${spaces}}\n`;
-                }
-            } else if (node.type === 'css-root') {
-                // Root node, just process children
+            if (node.type === 'css-rule' || node.type === 'css-at-rule') {
+                css += this.cssToString(node, {
+                    includeNestedRules: true,
+                    indent: indent * 4  // Convert indent level to spaces
+                });
+                css += '\n';
+            } else if (node.type === 'comment' && node.commentType === 'css') {
+                const indentStr = ' '.repeat(indent * 4);
+                css += `${indentStr}/*${node.content}*/\n`;
+            } else if (node.children) {
+                // Handle container nodes like css-root
                 css += this.#cssTreeToString(node.children, indent);
             }
         }
@@ -1453,345 +1820,6 @@ class Node {
             return output;
         }
         console.log(output);
-    }
-
-    /**
-     * Flattens one or more CSS rules into a CSS string.
-     * @param {Node|Node[]} rules - Single rule or array of rules to flatten
-     * @param {Object} [options={}] - Formatting options
-     * @param {boolean} [options.includeBraces=true] - Whether to include { } around declarations
-     * @param {boolean} [options.includeSelector=true] - Whether to include the selector
-     * @param {boolean} [options.combineDeclarations=true] - Whether to merge declarations from multiple rules
-     * @param {boolean} [options.expandNested=false] - Whether to expand nested rules into separate rules
-     * @param {boolean} [options.singleLine=false] - Whether to output on a single line
-     * @param {number} [options.indent=0] - Indentation level (number of spaces)
-     * @returns {string} Flattened CSS string
-     */
-    cssFlattenRules(rules, options = {}) {
-        const {
-            includeBraces = true,
-            includeSelector = true,
-            combineDeclarations = true,
-            expandNested = false,
-            singleLine = false,
-            indent = 0
-        } = options;
-
-        // Normalize to array
-        const ruleArray = Array.isArray(rules) ? rules : [rules];
-
-        // Combine declarations from all rules (or keep separate)
-        const combinedDeclarations = {};
-        const separateRules = []; // For when combineDeclarations is false
-        let combinedSelector = '';
-        const nestedRules = [];
-
-        for (const rule of ruleArray) {
-            if (rule.type === 'css-rule') {
-                // Collect selector (for first rule or combine)
-                if (!combinedSelector) {
-                    combinedSelector = rule.cssSelector;
-                }
-
-                if (combineDeclarations) {
-                    // Merge declarations into one
-                    if (rule.cssDeclarations) {
-                        Object.assign(combinedDeclarations, rule.cssDeclarations);
-                    }
-                } else {
-                    // Keep rules separate
-                    separateRules.push(rule);
-                }
-
-                // Collect nested rules if expanding
-                if (expandNested && rule.children) {
-                    for (const child of rule.children) {
-                        if (child.type === 'css-rule') {
-                            nestedRules.push(child);
-                        }
-                    }
-                }
-            }
-        }
-
-        // If not combining, process each rule separately
-        if (!combineDeclarations && separateRules.length > 0) {
-            let result = '';
-            for (const rule of separateRules) {
-                result += this.cssFlattenRules(rule, { ...options, combineDeclarations: true });
-                if (!singleLine) {
-                    result += '\n';
-                }
-            }
-            return result.trimEnd();
-        }
-
-        // Build the CSS string (rest of the code stays the same)
-        const spaces = singleLine ? '' : ' '.repeat(indent);
-        const newline = singleLine ? ' ' : '\n';
-        let result = '';
-
-        // Add selector if requested AND we're including braces
-        if (includeSelector && includeBraces && combinedSelector) {
-            result += `${spaces}${combinedSelector}`;
-        }
-
-        // Add opening brace if requested
-        if (includeBraces) {
-            result += includeSelector ? ` {${newline}` : `{${newline}`;
-        }
-
-        // Add declarations
-        const declIndent = includeBraces && !singleLine ? indent + 4 : indent;
-        const declSpaces = singleLine ? '' : ' '.repeat(declIndent);
-
-        const declarationEntries = Object.entries(combinedDeclarations);
-        for (let i = 0; i < declarationEntries.length; i++) {
-            const [prop, value] = declarationEntries[i];
-            const isLast = i === declarationEntries.length - 1;
-
-            if (singleLine) {
-                result += `${prop}: ${value};`;
-                if (!isLast) {
-                    result += ' ';
-                }
-            } else {
-                result += `${declSpaces}${prop}: ${value};${newline}`;
-            }
-        }
-
-        // Add closing brace if requested
-        if (includeBraces) {
-            if (singleLine) {
-                result += ` }`;
-            } else {
-                result += `${spaces}}${newline}`;
-            }
-        }
-
-        // Add expanded nested rules
-        if (expandNested && nestedRules.length > 0) {
-            for (const nested of nestedRules) {
-                const fullSelector = `${combinedSelector} ${nested.cssSelector}`;
-                const nestedWithFullSelector = { ...nested, cssSelector: fullSelector };
-
-                if (singleLine) {
-                    result += ` ${this.cssFlattenRules(nestedWithFullSelector, { ...options, indent })}`;
-                } else {
-                    result += `\n${this.cssFlattenRules(nestedWithFullSelector, { ...options, indent })}`;
-                }
-            }
-        }
-
-        return singleLine ? result : result.trimEnd();
-    }
-
-    /**
-     * Gets all unique CSS selectors from the CSS tree.
-     * @param {Object} [options={}] - Options for selector extraction
-     * @param {boolean} [options.splitCommas=true] - Whether to split comma-separated selectors
-     * @returns {string[]} Array of unique selectors
-     */
-    cssGetAllSelectors(options = {}) {
-        const { splitCommas = true } = options;
-        const selectors = new Set();
-
-        const extractSelectors = (node) => {
-            if (node.type === 'css-rule' && node.cssSelector) {
-                if (splitCommas) {
-                    // Split comma-separated selectors
-                    const parts = node.cssSelector.split(',').map((s) => { return s.trim(); });
-                    parts.forEach((part) => { return selectors.add(part); });
-                } else {
-                    selectors.add(node.cssSelector);
-                }
-            }
-
-            // Recursively process children
-            if (node.children) {
-                for (const child of node.children) {
-                    extractSelectors(child);
-                }
-            }
-        };
-
-        extractSelectors(this);
-        return Array.from(selectors);
-    }
-
-    /**
-     * Gets all CSS at-rules, optionally filtered by name.
-     * @param {string|null} [name=null] - At-rule name to filter by (e.g., 'media', 'keyframes'), or null for all
-     * @returns {Node[]} Array of at-rule nodes
-     */
-    cssGetAtRules(name = null) {
-        const results = [];
-
-        const searchRules = (node) => {
-            if (node.type === 'css-at-rule') {
-                if (name === null || node.cssName === name) {
-                    results.push(node);
-                }
-            }
-
-            // Recursively search children
-            if (node.children) {
-                for (const child of node.children) {
-                    searchRules(child);
-                }
-            }
-        };
-
-        searchRules(this);
-        return results;
-    }
-
-    /**
-     * Finds all CSS rules that match a given selector.
-     * @param {string} selector - Selector to search for (e.g., '.card', '#wrapper')
-     * @param {boolean} [exact=false] - If true, only exact matches. If false, loose matching (contains)
-     * @returns {Node[]} Array of matching CSS rule nodes
-     */
-    cssGetRulesBySelector(selector, exact = false) {
-        const results = [];
-
-        const searchRules = (node) => {
-            if (node.type === 'css-rule') {
-                if (exact) {
-                    // Exact match - check if selector is exactly this or in comma-separated list
-                    const selectors = node.cssSelector.split(',').map((s) => { return s.trim(); });
-                    if (selectors.includes(selector)) {
-                        results.push(node);
-                    }
-                } else if (node.cssSelector.includes(selector)) {
-                    results.push(node);
-                }
-            }
-
-            // Recursively search children
-            if (node.children) {
-                for (const child of node.children) {
-                    searchRules(child);
-                }
-            }
-        };
-
-        searchRules(this);
-        return results;
-    }
-
-    /**
-     * Gets all CSS styles that would apply to a given selector, combined into a single CSS string.
-     * @param {string} selector - Selector to get styles for (e.g., '.card')
-     * @param {Object} [options={}] - Formatting options (same as cssFlattenRules)
-     * @returns {string} Combined CSS string with all matching styles
-     */
-    cssGetStylesFor(selector, options = {}) {
-        const rules = this.cssGetRulesBySelector(selector, false);
-
-        if (rules.length === 0) {
-            return '';
-        }
-
-        return this.cssFlattenRules(rules, {
-            combineDeclarations: true,
-            expandNested: true,
-            ...options
-        });
-    }
-
-    /**
-     * Gets a specific CSS variable by name, optionally from a specific rule.
-     * @param {string} name - Variable name (with or without '--' prefix)
-     * @param {Node|null} [rule=null] - Specific rule to search in, or null to search all
-     * @returns {string|null} Variable value or null if not found
-     */
-    cssGetVariable(name, rule = null) {
-        // Ensure name has -- prefix
-        const varName = name.startsWith('--') ? name : `--${name}`;
-
-        if (rule) {
-            // Search only in specified rule
-            return rule.cssDeclarations?.[varName] || null;
-        }
-
-        // Search through all rules
-        const searchRule = (node) => {
-            if (node.cssDeclarations && node.cssDeclarations[varName]) {
-                return node.cssDeclarations[varName];
-            }
-
-            if (node.children) {
-                for (const child of node.children) {
-                    const found = searchRule(child);
-                    if (found) return found;
-                }
-            }
-
-            return null;
-        };
-
-        return searchRule(this);
-    }
-
-    /**
-     * Gets all CSS variables (custom properties) from the tree with their scope paths.
-     * @param {Object} [options={}] - Options for variable extraction
-     * @param {boolean} [options.includeRoot=false] - Whether to include 'root' in scope path for root-level vars
-     * @returns {Array<{name: string, value: string, scope: string, rule: Node}>} Array of variable objects
-     */
-    cssGetVariables(options = {}) {
-        const { includeRoot = false } = options;
-        const variables = [];
-
-        const extractVars = (node, scopePath = '') => {
-            // Build scope path
-            let currentScope = scopePath;
-
-            if (node.type === 'css-rule') {
-                currentScope = scopePath ? `${scopePath} > ${node.cssSelector}` : node.cssSelector;
-            } else if (node.type === 'css-at-rule') {
-                const atRuleStr = `@${node.cssName}${node.cssParams ? ` ${node.cssParams}` : ''}`;
-                currentScope = scopePath ? `${scopePath} > ${atRuleStr}` : atRuleStr;
-            }
-
-            // Extract variables from declarations
-            if (node.cssDeclarations) {
-                for (const [prop, value] of Object.entries(node.cssDeclarations)) {
-                    if (prop.startsWith('--')) {
-                        // Clean up scope path (remove 'root' if at root level and option says so)
-                        let finalScope = currentScope;
-                        if (!includeRoot && node.parent && node.parent.type === 'css-root') {
-                            // This is a top-level rule, check if it's :root
-                            if (node.cssSelector === ':root') {
-                                finalScope = ':root';
-                            } else {
-                                finalScope = node.cssSelector;
-                            }
-                        }
-
-                        variables.push({
-                            name: prop,
-                            value,
-                            scope: finalScope,
-                            rule: node
-                        });
-                    }
-                }
-            }
-
-            // Recursively process children
-            if (node.children) {
-                for (const child of node.children) {
-                    extractVars(child, currentScope);
-                }
-            }
-        };
-
-        // Start extraction from this node
-        extractVars(this);
-
-        return variables;
     }
 
 }

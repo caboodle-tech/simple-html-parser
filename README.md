@@ -204,29 +204,93 @@ div.updateAttribute('class', 'active'); // class="container active"
 
 CSS methods are available when parsing `<style>` tags.
 
-##### `cssGetRulesBySelector(selector: string, exact?: boolean): Node[]`
+##### `cssFindAtRules(name?: string): Node[]`
+
+Find at-rules (@media, @keyframes, @supports, etc.) in the CSS tree.
+```javascript
+// Find all @media rules
+const mediaRules = style.cssFindAtRules('media');
+
+// Find all at-rules
+const allAtRules = style.cssFindAtRules();
+```
+
+##### `cssFindRules(selector: string, options?: object): Node[]`
 
 Find CSS rules matching a selector.
 
+Options:
+- `includeCompound` (default: `true`) - Include compound selectors like `.card.active`
+- `shallow` (default: `false`) - Exclude nested children and descendant selectors
 ```javascript
-const cardRules = dom.cssGetRulesBySelector('.card');
+// Find all .card rules (includes .card.active)
+const cardRules = style.cssFindRules('.card');
+
+// Find only exact .card rules
+const exactCard = style.cssFindRules('.card', { includeCompound: false });
+
+// Find #wrapper rules, excluding nested rules
+const wrapperOnly = style.cssFindRules('#wrapper', { shallow: true });
 ```
 
-##### `cssGetVariable(name: string): string | null`
+##### `cssFindVariable(name: string, rule?: Node): string | null`
 
-Get a CSS custom property value.
-
+Find a specific CSS variable (custom property) by name.
 ```javascript
-const primary = dom.cssGetVariable('--primary-color');
+// Find --primary-color
+const primary = style.cssFindVariable('--primary-color');
+
+// Find variable without -- prefix
+const spacing = style.cssFindVariable('spacing');
 ```
 
-##### `cssGetAllSelectors(): string[]`
+##### `cssFindVariables(options?: object): Array`
 
-Get all unique CSS selectors.
+Find all CSS variables with their scope paths.
 
+Options:
+- `includeRoot` (default: `false`) - Include 'root' in scope path for root-level variables
 ```javascript
-const selectors = dom.cssGetAllSelectors();
-// ['.card', '#app', 'div.container', ...]
+const vars = style.cssFindVariables();
+// [{name: '--primary', value: '#007bff', scope: ':root', rule: Node}]
+```
+
+##### `cssToString(nodes?: Node|Node[], options?: object): string`
+
+Convert CSS rules to a formatted CSS string.
+
+Behavior:
+- Called with nodes: Converts those specific nodes
+- Called on HTML node: Finds and combines all `<style>` tags
+- Called on CSS/style node: Converts this node's CSS tree
+
+Options:
+- `includeComments` (default: `false`) - Include CSS comments
+- `includeNestedRules` (default: `true`) - Include nested rules within parent rules
+- `flattenNested` (default: `false`) - Flatten nested rules to separate top-level rules with full selectors
+- `includeBraces` (default: `true`) - Include { } around declarations
+- `includeSelector` (default: `true`) - Include the selector
+- `combineDeclarations` (default: `true`) - Merge declarations from multiple rules
+- `singleLine` (default: `false`) - Output on single line
+- `indent` (default: `0`) - Indentation level in spaces
+```javascript
+// Convert specific rules
+const rules = style.cssFindRules('.card');
+const css = style.cssToString(rules, { includeNestedRules: false });
+
+// Convert entire style tag
+const style = dom.querySelector('style');
+const css = style.cssToString({ flattenNested: true });
+
+// Combine all styles in document
+const css = dom.cssToString();
+
+// Just declarations
+const css = style.cssToString(rules, { 
+  includeSelector: false, 
+  includeBraces: false 
+});
+// "background: white; padding: 1rem;"
 ```
 
 #### Output Methods
@@ -282,18 +346,23 @@ parent.appendChild(div);
 ```
 
 ### CSS Manipulation
-
 ```javascript
 const style = dom.querySelector('style');
-const variables = style.cssGetVariables();
+
+// Get all CSS variables
+const variables = style.cssFindVariables();
 console.log(variables);
 // [{ name: '--primary', value: '#007bff', scope: ':root', rule: Node }]
 
-const rules = style.cssGetRulesBySelector('.card');
-rules.forEach(rule => {
-    console.log(rule.cssDeclarations);
-    // { 'background': 'white', 'padding': '1rem' }
-});
+// Find specific variable
+const primaryColor = style.cssFindVariable('--primary-color');
+
+// Get .card rules (shallow - no nested)
+const rules = style.cssFindRules('.card', { shallow: true });
+
+// Convert to CSS string without nested rules
+const css = style.cssToString(rules, { includeNestedRules: false });
+// ".card { background: white; padding: 1rem; }"
 ```
 
 ### Special Tag Handling

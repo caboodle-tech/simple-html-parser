@@ -143,7 +143,7 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         assert.ok(style.children.length > 0);
     });
 
-    await t.test('cssGetRulesBySelector finds rules', () => {
+    await t.test('cssFindRules finds rules', () => {
         const html = `<style>
 .card { background: white; }
 .card.active { background: blue; }
@@ -152,14 +152,14 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         const dom = parser.parse(html);
         const style = dom.querySelector('style');
         
-        const cardRules = style.cssGetRulesBySelector('.card');
+        const cardRules = style.cssFindRules('.card');
         assert.strictEqual(cardRules.length, 2);
         
-        const exactCard = style.cssGetRulesBySelector('.card', true);
+        const exactCard = style.cssFindRules('.card', { includeCompound: false });
         assert.strictEqual(exactCard.length, 1);
     });
 
-    await t.test('cssGetVariable finds CSS variables', () => {
+    await t.test('cssFindVariable finds CSS variables', () => {
         const html = `<style>
 :root {
     --primary: #007bff;
@@ -169,14 +169,14 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         const dom = parser.parse(html);
         const style = dom.querySelector('style');
         
-        const primary = style.cssGetVariable('--primary');
+        const primary = style.cssFindVariable('--primary');
         assert.strictEqual(primary, '#007bff');
         
-        const secondary = style.cssGetVariable('secondary'); // without --
+        const secondary = style.cssFindVariable('secondary'); // without --
         assert.strictEqual(secondary, '#6c757d');
     });
 
-    await t.test('cssGetVariables returns all variables', () => {
+    await t.test('cssFindVariables returns all variables', () => {
         const html = `<style>
 :root {
     --primary: #007bff;
@@ -189,7 +189,7 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         const dom = parser.parse(html);
         const style = dom.querySelector('style');
         
-        const variables = style.cssGetVariables();
+        const variables = style.cssFindVariables();
         assert.strictEqual(variables.length, 3);
         
         const names = variables.map(v => v.name);
@@ -198,22 +198,7 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         assert.ok(names.includes('--card-bg'));
     });
 
-    await t.test('cssGetAllSelectors returns unique selectors', () => {
-        const html = `<style>
-.card { background: white; }
-.button { color: black; }
-.card.active { background: blue; }
-</style>`;
-        const dom = parser.parse(html);
-        const style = dom.querySelector('style');
-        
-        const selectors = style.cssGetAllSelectors();
-        assert.ok(selectors.includes('.card'));
-        assert.ok(selectors.includes('.button'));
-        assert.ok(selectors.includes('.card.active'));
-    });
-
-    await t.test('cssGetAtRules finds at-rules', () => {
+    await t.test('cssFindAtRules finds at-rules', () => {
         const html = `<style>
 @media (max-width: 768px) {
     .container { padding: 0.5rem; }
@@ -228,13 +213,13 @@ test('SimpleHtmlParser - CSS in style tags', async (t) => {
         const dom = parser.parse(html);
         const style = dom.querySelector('style');
         
-        const allAtRules = style.cssGetAtRules();
+        const allAtRules = style.cssFindAtRules();
         assert.strictEqual(allAtRules.length, 3);
         
-        const mediaRules = style.cssGetAtRules('media');
+        const mediaRules = style.cssFindAtRules('media');
         assert.strictEqual(mediaRules.length, 2);
         
-        const keyframes = style.cssGetAtRules('keyframes');
+        const keyframes = style.cssFindAtRules('keyframes');
         assert.strictEqual(keyframes.length, 1);
     });
 

@@ -159,7 +159,7 @@ test('SimpleHtmlParser - Style tags', async (t) => {
         assert.ok(style.styleBlock);
         assert.ok(style.children.length > 0);
         
-        const rules = style.cssGetRulesBySelector('.card');
+        const rules = style.cssFindRules('.card');
         assert.strictEqual(rules.length, 1);
         assert.strictEqual(rules[0].cssDeclarations['background'], 'white');
     });
