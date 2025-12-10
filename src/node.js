@@ -247,6 +247,102 @@ class Node {
     }
 
     /**
+     * Helper method to build a single CSS rule string.
+     * @private
+     */
+    #buildCssRule(selector, declarations, nestedChildren, options) {
+        const {
+            includeBraces,
+            includeSelector,
+            includeNestedRules,
+            flattenNested,
+            singleLine,
+            indent
+        } = options;
+
+        const spaces = singleLine ? '' : ' '.repeat(indent);
+        const newline = singleLine ? ' ' : '\n';
+        let result = '';
+
+        // Add selector if requested
+        if (includeSelector && selector) {
+            result += `${spaces}${selector}`;
+        }
+
+        // Add opening brace if requested
+        if (includeBraces) {
+            result += includeSelector && selector ? ` {${newline}` : `{${newline}`;
+        }
+
+        // Add declarations
+        const declIndent = includeBraces && !singleLine ? indent + 4 : indent;
+        const declSpaces = singleLine ? '' : ' '.repeat(declIndent);
+
+        const declarationEntries = Object.entries(declarations);
+        for (let i = 0; i < declarationEntries.length; i++) {
+            const [prop, value] = declarationEntries[i];
+
+            if (singleLine) {
+                result += `${prop}: ${value};`;
+                if (i < declarationEntries.length - 1 || nestedChildren.length > 0) {
+                    result += ' ';
+                }
+            } else {
+                result += `${declSpaces}${prop}: ${value};${newline}`;
+            }
+        }
+
+        // Add nested rules if requested
+        if (includeNestedRules && nestedChildren.length > 0) {
+            for (const nested of nestedChildren) {
+                if (nested.type === 'css-rule') {
+                    // Get nested rule's declarations and children
+                    const nestedDeclarations = nested.cssDeclarations || {};
+                    const nestedNested = nested.children?.filter((c) => { return c.type === 'css-rule' || c.type === 'css-at-rule'; }
+                    ) || [];
+
+                    if (flattenNested) {
+                        // Flatten - build full selector path
+                        const fullSelector = `${selector} ${nested.cssSelector}`;
+                        if (!singleLine) {
+                            result += '\n';
+                        }
+                        result += this.#buildCssRule(
+                            fullSelector,
+                            nestedDeclarations,
+                            nestedNested,
+                            { ...options, indent }
+                        );
+                    } else {
+                        // Preserve nesting
+                        result += this.#buildCssRule(
+                            nested.cssSelector,
+                            nestedDeclarations,
+                            nestedNested,
+                            { ...options, indent: declIndent }
+                        );
+                    }
+
+                    if (!singleLine) {
+                        result += '\n';
+                    }
+                }
+            }
+        }
+
+        // Add closing brace if requested
+        if (includeBraces) {
+            if (singleLine) {
+                result += ' }';
+            } else {
+                result += `${spaces}}`;
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * Creates a new Node instance.
      * @param {string} type - Node type ('comment', 'text', 'root', 'tag-close', 'tag-open')
      * @param {string} [name=''] - Tag name for element nodes
@@ -319,14 +415,33 @@ class Node {
 
         const searchRules = (node) => {
             if (node.type === 'css-rule') {
-                const matches = includeCompound ?
-                    node.cssSelector.includes(selector) :  // Loose match
-                    node.cssSelector.split(',').map((s) => { return s.trim(); }).includes(selector);  // Exact match
+                let matches = false;
+
+                if (includeCompound) {
+                    // Loose match - selector appears anywhere
+                    // For tag selectors, use word boundaries to avoid partial matches
+                    const isTagSelector = !selector.startsWith('.') && !selector.startsWith('#') && !selector.startsWith('[');
+
+                    if (isTagSelector) {
+                        // Word boundary match for tags (p, a, table, etc.)
+                        const regex = new RegExp(`\\b${selector}\\b`, 'i');
+                        matches = regex.test(node.cssSelector);
+                    } else {
+                        // Simple contains for classes/IDs
+                        matches = node.cssSelector.includes(selector);
+                    }
+                } else {
+                    // Exact match - split on both commas AND spaces
+                    const selectors = node.cssSelector
+                        .split(',')
+                        .flatMap((s) => { return s.trim().split(REGEX.whitespace); })
+                        .map((s) => { return s.trim(); });
+
+                    matches = selectors.includes(selector);
+                }
 
                 if (matches) {
-                    // Clone the node if we need to strip nested rules
                     if (shallow) {
-                        // Create a shallow copy with nested children removed
                         const clonedNode = Object.create(Object.getPrototypeOf(node));
                         Object.assign(clonedNode, node);
                         clonedNode.children = node.children.filter((child) => { return child.type !== 'css-rule' && child.type !== 'css-at-rule'; }
@@ -338,8 +453,6 @@ class Node {
                 }
             }
 
-            // Continue searching children if not filtering for direct rules only
-            // or if we need to search deeper in the tree
             if (node.children) {
                 for (const child of node.children) {
                     searchRules(child);
@@ -463,8 +576,7 @@ class Node {
      *
      * Behavior:
      * - If called with node(s): Converts those specific nodes
-     * - If called on HTML node: Finds and combines all <style> tags
-     * - If called on CSS/style node: Converts this node's CSS tree
+     * - If called without params: Searches for all <style> tags from this node down and converts their CSS
      *
      * @param {Node|Node[]|Object} [nodesOrOptions] - CSS nodes to convert, or options object if converting this node
      * @param {Object} [options={}] - Formatting options (only when first param is nodes)
@@ -481,18 +593,13 @@ class Node {
      * @returns {string} Formatted CSS string
      *
      * @example
+     * // Convert all styles in document
+     * const css = dom.cssToString();
+     *
+     * @example
      * // Convert specific rules
      * const rules = style.cssFindRules('.card');
      * const css = style.cssToString(rules, { includeNestedRules: false });
-     *
-     * @example
-     * // Convert entire style tag
-     * const style = dom.querySelector('style');
-     * const css = style.cssToString({ flattenNested: true });
-     *
-     * @example
-     * // Combine all style tags in document
-     * const css = dom.cssToString({ includeComments: false });
      *
      * @example
      * // Get just declarations (no selector/braces)
@@ -500,27 +607,26 @@ class Node {
      *   includeSelector: false,
      *   includeBraces: false
      * });
-     * // "background: white; padding: 1rem;"
      */
     cssToString(nodesOrOptions, options = {}) {
-        // Determine if first parameter is nodes or options
         let nodesToConvert;
         let finalOptions;
 
         if (nodesOrOptions === undefined || (typeof nodesOrOptions === 'object' && !Array.isArray(nodesOrOptions) && !nodesOrOptions.type)) {
-            // First param is options (or undefined) - convert this node's CSS
+            // No nodes provided - find ALL style tags from this node down
             finalOptions = nodesOrOptions || {};
 
-            if (this.type === 'root' || this.type === 'tag-open') {
-                // HTML node - find all style tags
-                const styleTags = this.querySelectorAll('style');
-                nodesToConvert = styleTags.flatMap((tag) => { return tag.children; });
+            const styleTags = this.querySelectorAll('style');
+
+            if (styleTags.length > 0) {
+                // Found style tags - extract all their CSS children into one array
+                nodesToConvert = styleTags.flatMap((tag) => { return tag.children || []; });
             } else {
-                // CSS node - use this node's children as root
+                // No style tags - treat this node's children as CSS nodes
                 nodesToConvert = this.children || [this];
             }
         } else {
-            // First param is node(s) - convert those specific nodes
+            // Nodes provided explicitly
             nodesToConvert = nodesOrOptions;
             finalOptions = options;
         }
@@ -537,39 +643,96 @@ class Node {
             indent = 0
         } = finalOptions;
 
+        // Rebuild options object with defaults applied
+        const processedOptions = {
+            includeComments,
+            includeNestedRules,
+            flattenNested,
+            includeBraces,
+            includeSelector,
+            combineDeclarations,
+            singleLine,
+            indent
+        };
+
         // Normalize nodes to array
         const ruleArray = Array.isArray(nodesToConvert) ? nodesToConvert : [nodesToConvert];
 
-        // If not combining declarations, process each rule separately
-        if (!combineDeclarations && ruleArray.length > 1) {
-            let result = '';
+        // Group rules by selector if combining declarations
+        if (combineDeclarations) {
+            const rulesBySelector = new Map();
+
             for (const rule of ruleArray) {
-                result += this.cssToString(rule, { ...finalOptions, combineDeclarations: true });
+                if (rule.type === 'css-rule') {
+                    const selector = rule.cssSelector;
+
+                    if (!rulesBySelector.has(selector)) {
+                        rulesBySelector.set(selector, []);
+                    }
+
+                    rulesBySelector.get(selector).push(rule);
+                } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
+                    // Handle comments separately
+                    const key = `__comment_${Math.random()}`;
+                    rulesBySelector.set(key, [rule]);
+                }
+            }
+
+            // Process each selector group
+            let result = '';
+            for (const [selector, rules] of rulesBySelector) {
+                // Handle comments
+                if (selector.startsWith('__comment_')) {
+                    const spaces = singleLine ? '' : ' '.repeat(indent);
+                    result += `${spaces}/*${rules[0].content}*/`;
+                    if (!singleLine) {
+                        result += '\n';
+                    }
+                    continue;
+                }
+
+                // Combine all declarations for this selector
+                const combinedDeclarations = {};
+                const nestedChildren = [];
+
+                for (const rule of rules) {
+                    if (rule.cssDeclarations) {
+                        Object.assign(combinedDeclarations, rule.cssDeclarations);
+                    }
+
+                    // Collect nested rules from first occurrence only
+                    if (includeNestedRules && rule.children && nestedChildren.length === 0) {
+                        for (const child of rule.children) {
+                            if (child.type === 'css-rule' || child.type === 'css-at-rule') {
+                                nestedChildren.push(child);
+                            }
+                        }
+                    }
+                }
+
+                // Build CSS for this selector
+                result += this.#buildCssRule(
+                    selector,
+                    combinedDeclarations,
+                    nestedChildren,
+                    processedOptions
+                );
+
                 if (!singleLine) {
                     result += '\n';
                 }
             }
+
             return result.trimEnd();
         }
 
-        // Combine declarations from all rules
-        const combinedDeclarations = {};
-        let combinedSelector = '';
-        const nestedChildren = [];
-
+        // Not combining - process each rule separately
+        let result = '';
         for (const rule of ruleArray) {
             if (rule.type === 'css-rule') {
-                // Collect selector (use first rule's selector)
-                if (!combinedSelector) {
-                    combinedSelector = rule.cssSelector;
-                }
+                const declarations = rule.cssDeclarations || {};
+                const nestedChildren = [];
 
-                // Merge declarations
-                if (rule.cssDeclarations) {
-                    Object.assign(combinedDeclarations, rule.cssDeclarations);
-                }
-
-                // Collect nested rules if requested
                 if (includeNestedRules && rule.children) {
                     for (const child of rule.children) {
                         if (child.type === 'css-rule' || child.type === 'css-at-rule') {
@@ -577,79 +740,27 @@ class Node {
                         }
                     }
                 }
+
+                result += this.#buildCssRule(
+                    rule.cssSelector,
+                    declarations,
+                    nestedChildren,
+                    processedOptions
+                );
+
+                if (!singleLine) {
+                    result += '\n';
+                }
             } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
-                // Handle CSS comments if requested
                 const spaces = singleLine ? '' : ' '.repeat(indent);
-                return `${spaces}/*${rule.content}*/`;
-            }
-        }
-
-        // Build the CSS string
-        const spaces = singleLine ? '' : ' '.repeat(indent);
-        const newline = singleLine ? ' ' : '\n';
-        let result = '';
-
-        // Add selector if requested
-        if (includeSelector && combinedSelector) {
-            result += `${spaces}${combinedSelector}`;
-        }
-
-        // Add opening brace if requested
-        if (includeBraces) {
-            result += includeSelector && combinedSelector ? ` {${newline}` : `{${newline}`;
-        }
-
-        // Add declarations
-        const declIndent = includeBraces && !singleLine ? indent + 4 : indent;
-        const declSpaces = singleLine ? '' : ' '.repeat(declIndent);
-
-        const declarationEntries = Object.entries(combinedDeclarations);
-        for (let i = 0; i < declarationEntries.length; i++) {
-            const [prop, value] = declarationEntries[i];
-            const isLast = i === declarationEntries.length - 1 && nestedChildren.length === 0;
-
-            if (singleLine) {
-                result += `${prop}: ${value};`;
-                if (!isLast) {
-                    result += ' ';
-                }
-            } else {
-                result += `${declSpaces}${prop}: ${value};${newline}`;
-            }
-        }
-
-        // Add nested rules if requested
-        if (includeNestedRules && nestedChildren.length > 0) {
-            for (const nested of nestedChildren) {
-                if (flattenNested && nested.type === 'css-rule') {
-                    // Flatten nested rules - build full selector path
-                    const fullSelector = `${combinedSelector} ${nested.cssSelector}`;
-                    const nestedWithFullSelector = { ...nested, cssSelector: fullSelector };
-
-                    if (singleLine) {
-                        result += ` ${this.cssToString(nestedWithFullSelector, { ...finalOptions, indent })}`;
-                    } else {
-                        result += `\n${this.cssToString(nestedWithFullSelector, { ...finalOptions, indent })}`;
-                    }
-                } else if (singleLine) {
-                    // Preserve nesting structure
-                    result += ` ${this.cssToString(nested, { ...finalOptions, indent: declIndent })}`;
-                } else {
-                    result += this.cssToString(nested, { ...finalOptions, indent: declIndent });
+                result += `${spaces}/*${rule.content}*/`;
+                if (!singleLine) {
+                    result += '\n';
                 }
             }
         }
 
-        // Add closing brace if requested
-        if (includeBraces) {
-            if (singleLine) {
-                result += ' }';
-            } else {
-                result += `${spaces}}${newline}`;
-            }
-        }
-
-        return singleLine ? result : result.trimEnd();
+        return result.trimEnd();
     }
 
     /**
@@ -667,14 +778,16 @@ class Node {
             if (node.type === 'css-rule' || node.type === 'css-at-rule') {
                 css += this.cssToString(node, {
                     includeNestedRules: true,
-                    indent: indent * 4  // Convert indent level to spaces
+                    includeBraces: true,        // Explicitly set
+                    includeSelector: true,      // Explicitly set
+                    combineDeclarations: false, // Don't combine - just convert this one rule
+                    indent: indent * 4
                 });
                 css += '\n';
             } else if (node.type === 'comment' && node.commentType === 'css') {
                 const indentStr = ' '.repeat(indent * 4);
                 css += `${indentStr}/*${node.content}*/\n`;
             } else if (node.children) {
-                // Handle container nodes like css-root
                 css += this.#cssTreeToString(node.children, indent);
             }
         }

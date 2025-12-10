@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { SimpleHtmlParser } from '../src/simple-html-parser.js';
 
-test('Node - insertBefore', async (t) => {
+test('Node - insertBefore', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('moves node before target', () => {
@@ -13,13 +13,13 @@ test('Node - insertBefore', async (t) => {
         const dom = parser.parse(html);
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
-        
+
         a.insertBefore(b);
-        
+
         const output = dom.toHtml();
         const aIndex = output.indexOf('id="A"');
         const bIndex = output.indexOf('id="B"');
-        
+
         assert.ok(bIndex < aIndex, 'B should come before A');
         assert.strictEqual((output.match(/id="B"/g) || []).length, 1, 'B should appear only once');
     });
@@ -32,9 +32,9 @@ test('Node - insertBefore', async (t) => {
         const dom = parser.parse(html);
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
-        
+
         a.insertBefore(b);
-        
+
         const output = dom.toHtml();
         assert.ok(output.includes('\n    <p id="B">'), 'Should preserve indentation');
     });
@@ -45,12 +45,12 @@ test('Node - insertBefore', async (t) => {
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
         const c = dom.querySelector('#C');
-        
+
         a.insertBefore(b, c);
-        
+
         const div = dom.querySelector('div');
         const spans = div.querySelectorAll('span');
-        
+
         assert.strictEqual(spans[0].getAttribute('id'), 'B');
         assert.strictEqual(spans[1].getAttribute('id'), 'C');
         assert.strictEqual(spans[2].getAttribute('id'), 'A');
@@ -60,14 +60,14 @@ test('Node - insertBefore', async (t) => {
         const parser = new SimpleHtmlParser();
         const orphan = parser.parse('<div></div>').querySelector('div');
         orphan.parent = null;
-        
+
         assert.throws(() => {
             orphan.insertBefore(parser.parse('<p></p>').querySelector('p'));
         }, /no parent/);
     });
 });
 
-test('Node - insertAfter', async (t) => {
+test('Node - insertAfter', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('moves node after target', () => {
@@ -78,13 +78,13 @@ test('Node - insertAfter', async (t) => {
         const dom = parser.parse(html);
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
-        
+
         b.insertAfter(a);  // Insert A after B
-        
+
         const output = dom.toHtml();
         const aIndex = output.indexOf('id="A"');
         const bIndex = output.indexOf('id="B"');
-        
+
         assert.ok(bIndex < aIndex, 'B should come before A');
         assert.strictEqual((output.match(/id="A"/g) || []).length, 1, 'A should appear only once');
     });
@@ -94,12 +94,12 @@ test('Node - insertAfter', async (t) => {
         const dom = parser.parse(html);
         const img = dom.querySelector('#img1');
         const p = dom.querySelector('#p1');
-        
+
         img.insertAfter(p);
-        
+
         const div = dom.querySelector('div');
-        const firstChild = div.children.find(c => c.type === 'tag-open');
-        
+        const firstChild = div.children.find((c) => { return c.type === 'tag-open'; });
+
         assert.strictEqual(firstChild.getAttribute('id'), 'img1');
     });
 
@@ -111,15 +111,15 @@ test('Node - insertAfter', async (t) => {
         const dom = parser.parse(html);
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
-        
+
         a.insertAfter(b);
-        
+
         const output = dom.toHtml();
         assert.ok(output.includes('\n    <p id="A">'), 'Should preserve indentation');
     });
 });
 
-test('Node - replaceWith', async (t) => {
+test('Node - replaceWith', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('replaces node with another', () => {
@@ -130,9 +130,9 @@ test('Node - replaceWith', async (t) => {
         const dom = parser.parse(html);
         const oldNode = dom.querySelector('#old');
         const newNode = dom.querySelector('#new');
-        
+
         oldNode.replaceWith(newNode);
-        
+
         const output = dom.toHtml();
         assert.ok(!output.includes('id="old"'), 'Old node should be gone');
         assert.strictEqual((output.match(/id="new"/g) || []).length, 1, 'New node should appear once');
@@ -147,9 +147,9 @@ test('Node - replaceWith', async (t) => {
         const dom = parser.parse(html);
         const outer = dom.querySelector('#outer');
         const inner = dom.querySelector('#inner');
-        
+
         outer.replaceWith(inner);
-        
+
         const output = dom.toHtml();
         assert.ok(!output.includes('id="outer"'), 'Outer should be gone');
         assert.ok(!output.includes('id="middle"'), 'Middle should be gone');
@@ -161,12 +161,12 @@ test('Node - replaceWith', async (t) => {
         const html = '<div><p id="old">Old</p></div>';
         const dom = parser.parse(html);
         const oldNode = dom.querySelector('#old');
-        
+
         const new1 = parser.parse('<span id="new1">New1</span>').querySelector('#new1');
         const new2 = parser.parse('<span id="new2">New2</span>').querySelector('#new2');
-        
+
         oldNode.replaceWith(new1, new2);
-        
+
         const output = dom.toHtml();
         assert.ok(!output.includes('id="old"'));
         assert.ok(output.includes('id="new1"'));
@@ -178,26 +178,26 @@ test('Node - replaceWith', async (t) => {
         const dom = parser.parse(html);
         const p = dom.querySelector('#remove');
         const newNode = parser.parse('<span>New</span>').querySelector('span');
-        
+
         p.replaceWith(newNode);
-        
+
         const div = dom.querySelector('div');
-        const pTags = div.children.filter(c => c.name === 'p');
-        
+        const pTags = div.children.filter((c) => { return c.name === 'p'; });
+
         assert.strictEqual(pTags.length, 0, 'No <p> tags should remain');
     });
 });
 
-test('Node - remove', async (t) => {
+test('Node - remove', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('removes node from tree', () => {
         const html = '<div><p id="remove">Text</p><span>Keep</span></div>';
         const dom = parser.parse(html);
         const p = dom.querySelector('#remove');
-        
+
         p.remove();
-        
+
         const output = dom.toHtml();
         assert.ok(!output.includes('id="remove"'));
         assert.ok(output.includes('Keep'));
@@ -207,12 +207,12 @@ test('Node - remove', async (t) => {
         const html = '<div><p>Remove me</p></div>';
         const dom = parser.parse(html);
         const p = dom.querySelector('p');
-        
+
         p.remove();
-        
+
         const div = dom.querySelector('div');
-        const pTags = div.children.filter(c => c.name === 'p');
-        
+        const pTags = div.children.filter((c) => { return c.name === 'p'; });
+
         assert.strictEqual(pTags.length, 0);
     });
 
@@ -220,14 +220,14 @@ test('Node - remove', async (t) => {
         const html = '<div><p id="test">Text</p></div>';
         const dom = parser.parse(html);
         const p = dom.querySelector('#test');
-        
+
         assert.ok(p.parent);
         p.remove();
         assert.strictEqual(p.parent, null);
     });
 });
 
-test('Node - Complex manipulation scenarios', async (t) => {
+test('Node - Complex manipulation scenarios', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('chain multiple operations', () => {
@@ -240,16 +240,16 @@ test('Node - Complex manipulation scenarios', async (t) => {
         const a = dom.querySelector('#A');
         const b = dom.querySelector('#B');
         const c = dom.querySelector('#C');
-        
+
         // Move B before A, then move C after B
         a.insertBefore(b);
         b.insertAfter(c);
-        
+
         const output = dom.toHtml();
         const bIndex = output.indexOf('id="B"');
         const cIndex = output.indexOf('id="C"');
         const aIndex = output.indexOf('id="A"');
-        
+
         assert.ok(bIndex < cIndex, 'B before C');
         assert.ok(cIndex < aIndex, 'C before A');
     });
@@ -260,13 +260,13 @@ test('Node - Complex manipulation scenarios', async (t) => {
         const dom = parser.parse(html);
         const child = dom.querySelector('#child');
         const sibling = dom.querySelector('#sibling');
-        
+
         // Move child to parent2 by inserting after sibling
         sibling.insertAfter(child);
-        
+
         const parent1 = dom.querySelector('#parent1');
         const parent2 = dom.querySelector('#parent2');
-        
+
         assert.strictEqual(parent1.querySelectorAll('p').length, 0);
         assert.strictEqual(parent2.querySelectorAll('p').length, 1);
     });

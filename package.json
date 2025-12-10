@@ -1,6 +1,6 @@
 {
     "name": "@caboodle-tech/simple-html-parser",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "description": "Lightweight HTML/CSS parser with DOM-like manipulation.",
     "publishConfig": {
         "access": "public"
@@ -18,7 +18,7 @@
     "scripts": {
         "build": "rollup -c",
         "lint": "eslint src/**/*.js",
-        "prepublishOnly": "npm test",
+        "prepublishOnly": "npm test && npm run build",
         "test": "node --test test/*.test.js"
     },
     "keywords": [

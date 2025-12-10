@@ -222,6 +222,7 @@ Find CSS rules matching a selector.
 Options:
 - `includeCompound` (default: `true`) - Include compound selectors like `.card.active`
 - `shallow` (default: `false`) - Exclude nested children and descendant selectors
+
 ```javascript
 // Find all .card rules (includes .card.active)
 const cardRules = style.cssFindRules('.card');

@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { SimpleHtmlParser } from '../src/simple-html-parser.js';
 
-test('Node - querySelector basics', async (t) => {
+test('Node - querySelector basics', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('finds element by tag name', () => {
         const html = '<div><p>Text</p><span>More</span></div>';
         const dom = parser.parse(html);
-        
+
         const p = dom.querySelector('p');
         assert.ok(p);
         assert.strictEqual(p.name, 'p');
@@ -17,10 +17,10 @@ test('Node - querySelector basics', async (t) => {
     await t.test('finds element by ID', () => {
         const html = '<div id="app"><p id="content">Text</p></div>';
         const dom = parser.parse(html);
-        
+
         const app = dom.querySelector('#app');
         const content = dom.querySelector('#content');
-        
+
         assert.strictEqual(app.getAttribute('id'), 'app');
         assert.strictEqual(content.getAttribute('id'), 'content');
     });
@@ -28,10 +28,10 @@ test('Node - querySelector basics', async (t) => {
     await t.test('finds element by class', () => {
         const html = '<div class="container"><p class="text">Content</p></div>';
         const dom = parser.parse(html);
-        
+
         const container = dom.querySelector('.container');
         const text = dom.querySelector('.text');
-        
+
         assert.ok(container);
         assert.ok(text);
     });
@@ -39,10 +39,10 @@ test('Node - querySelector basics', async (t) => {
     await t.test('finds element by multiple classes', () => {
         const html = '<div class="card primary active">Content</div>';
         const dom = parser.parse(html);
-        
+
         const element = dom.querySelector('.card.primary');
         assert.ok(element);
-        
+
         const withActive = dom.querySelector('.card.active');
         assert.ok(withActive);
     });
@@ -50,10 +50,10 @@ test('Node - querySelector basics', async (t) => {
     await t.test('finds element by attribute', () => {
         const html = '<div><a href="/home">Home</a><a href="/about">About</a></div>';
         const dom = parser.parse(html);
-        
+
         const withHref = dom.querySelector('[href]');
         assert.ok(withHref);
-        
+
         const specific = dom.querySelector('[href="/about"]');
         assert.strictEqual(specific.getAttribute('href'), '/about');
     });
@@ -61,13 +61,13 @@ test('Node - querySelector basics', async (t) => {
     await t.test('returns null when not found', () => {
         const html = '<div><p>Text</p></div>';
         const dom = parser.parse(html);
-        
+
         const notFound = dom.querySelector('.nonexistent');
         assert.strictEqual(notFound, null);
     });
 });
 
-test('Node - querySelector complex selectors', async (t) => {
+test('Node - querySelector complex selectors', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('finds descendant elements', () => {
@@ -77,7 +77,7 @@ test('Node - querySelector complex selectors', async (t) => {
     </div>
 </div>`;
         const dom = parser.parse(html);
-        
+
         const deep = dom.querySelector('.wrapper .text');
         assert.ok(deep);
         assert.strictEqual(deep.getAttribute('class'), 'text');
@@ -86,7 +86,7 @@ test('Node - querySelector complex selectors', async (t) => {
     await t.test('combines tag, class, and ID', () => {
         const html = '<div><p id="main" class="content">Text</p></div>';
         const dom = parser.parse(html);
-        
+
         const element = dom.querySelector('p#main.content');
         assert.ok(element);
     });
@@ -97,19 +97,19 @@ test('Node - querySelector complex selectors', async (t) => {
     <p class="special">Special</p>
 </div>`;
         const dom = parser.parse(html);
-        
+
         const notSpecial = dom.querySelector('p:not(.special)');
         assert.strictEqual(notSpecial.getAttribute('class'), 'normal');
     });
 });
 
-test('Node - querySelectorAll', async (t) => {
+test('Node - querySelectorAll', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('finds all matching elements', () => {
         const html = '<div><p>One</p><p>Two</p><p>Three</p></div>';
         const dom = parser.parse(html);
-        
+
         const paragraphs = dom.querySelectorAll('p');
         assert.strictEqual(paragraphs.length, 3);
     });
@@ -121,7 +121,7 @@ test('Node - querySelectorAll', async (t) => {
     <div class="item">3</div>
 </div>`;
         const dom = parser.parse(html);
-        
+
         const items = dom.querySelectorAll('.item');
         assert.strictEqual(items.length, 3);
     });
@@ -129,7 +129,7 @@ test('Node - querySelectorAll', async (t) => {
     await t.test('returns empty array when none found', () => {
         const html = '<div><p>Text</p></div>';
         const dom = parser.parse(html);
-        
+
         const notFound = dom.querySelectorAll('.nonexistent');
         assert.strictEqual(notFound.length, 0);
     });
@@ -145,13 +145,13 @@ test('Node - querySelectorAll', async (t) => {
     </ul>
 </div>`;
         const dom = parser.parse(html);
-        
+
         const items = dom.querySelectorAll('li');
         assert.strictEqual(items.length, 3);
     });
 });
 
-test('Node - findAll methods', async (t) => {
+test('Node - findAll methods', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('findAllByAttr', () => {
@@ -161,23 +161,23 @@ test('Node - findAll methods', async (t) => {
     <span data-id="3">Other</span>
 </div>`;
         const dom = parser.parse(html);
-        
+
         const withDataId = dom.findAllByAttr('data-id');
         assert.strictEqual(withDataId.length, 3);
-        
+
         const withHref = dom.findAllByAttr('href');
         assert.strictEqual(withHref.length, 2);
     });
 });
 
-test('Node - getAttribute/setAttribute', async (t) => {
+test('Node - getAttribute/setAttribute', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('getAttribute returns attribute value', () => {
         const html = '<div id="app" class="container"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         assert.strictEqual(div.getAttribute('id'), 'app');
         assert.strictEqual(div.getAttribute('class'), 'container');
     });
@@ -186,7 +186,7 @@ test('Node - getAttribute/setAttribute', async (t) => {
         const html = '<div></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         assert.strictEqual(div.getAttribute('id'), undefined);
     });
 
@@ -194,13 +194,13 @@ test('Node - getAttribute/setAttribute', async (t) => {
         const html = '<div></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         div.setAttribute('id', 'app');
         div.setAttribute('class', 'container');
-        
+
         assert.strictEqual(div.getAttribute('id'), 'app');
         assert.strictEqual(div.getAttribute('class'), 'container');
-        
+
         const output = dom.toHtml();
         assert.ok(output.includes('id="app"'));
         assert.ok(output.includes('class="container"'));
@@ -210,9 +210,9 @@ test('Node - getAttribute/setAttribute', async (t) => {
         const html = '<div id="app" class="container"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         div.removeAttribute('class');
-        
+
         assert.strictEqual(div.getAttribute('class'), undefined);
         assert.strictEqual(div.getAttribute('id'), 'app');
     });
@@ -221,14 +221,14 @@ test('Node - getAttribute/setAttribute', async (t) => {
         const html = '<div class="container"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         div.updateAttribute('class', 'active');
-        
+
         assert.strictEqual(div.getAttribute('class'), 'container active');
     });
 });
 
-test('Node - Edge cases', async (t) => {
+test('Node - Edge cases', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('querySelector on non-root node searches descendants', () => {
@@ -242,13 +242,13 @@ test('Node - Edge cases', async (t) => {
 </div>`;
         const dom = parser.parse(html);
         const child1 = dom.querySelector('#child1');
-        
+
         const p = child1.querySelector('.text');
         assert.ok(p);
         assert.strictEqual(p.getAttribute('class'), 'text');
-        
+
         // Verify it found the text within child1's subtree
-        const textContent = p.children.find(c => c.type === 'text');
+        const textContent = p.children.find((c) => { return c.type === 'text'; });
         assert.ok(textContent.content.includes('Text 1'));
     });
 
@@ -256,7 +256,7 @@ test('Node - Edge cases', async (t) => {
         const html = '<div data-value="hello&world" title="It\'s fine"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         assert.strictEqual(div.getAttribute('data-value'), 'hello&world');
         assert.strictEqual(div.getAttribute('title'), "It's fine");
     });

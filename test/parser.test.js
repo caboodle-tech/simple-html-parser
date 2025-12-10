@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { SimpleHtmlParser } from '../src/simple-html-parser.js';
 
-test('SimpleHtmlParser - Basic parsing', async (t) => {
+test('SimpleHtmlParser - Basic parsing', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('parses simple HTML', () => {
         const html = '<div>Hello World</div>';
         const dom = parser.parse(html);
-        
+
         assert.strictEqual(dom.type, 'root');
         assert.strictEqual(dom.children.length, 2);
         assert.strictEqual(dom.children[0].type, 'tag-open');
@@ -19,10 +19,10 @@ test('SimpleHtmlParser - Basic parsing', async (t) => {
     await t.test('parses nested elements', () => {
         const html = '<div><p>Text</p></div>';
         const dom = parser.parse(html);
-        
+
         const div = dom.querySelector('div');
         const p = dom.querySelector('p');
-        
+
         assert.ok(div);
         assert.ok(p);
         assert.strictEqual(p.parent, div);
@@ -32,7 +32,7 @@ test('SimpleHtmlParser - Basic parsing', async (t) => {
         const html = '<div id="app" class="container" data-value="123"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         assert.strictEqual(div.getAttribute('id'), 'app');
         assert.strictEqual(div.getAttribute('class'), 'container');
         assert.strictEqual(div.getAttribute('data-value'), '123');
@@ -42,7 +42,7 @@ test('SimpleHtmlParser - Basic parsing', async (t) => {
         const html = '<p>Hello World</p>';
         const dom = parser.parse(html);
         const p = dom.querySelector('p');
-        
+
         assert.strictEqual(p.children.length, 1);
         assert.strictEqual(p.children[0].type, 'text');
         assert.strictEqual(p.children[0].content, 'Hello World');
@@ -52,12 +52,12 @@ test('SimpleHtmlParser - Basic parsing', async (t) => {
         const html = '<div><img src="test.jpg"><br><input type="text"></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         // Should have 3 void elements (no closing tags)
         const img = dom.querySelector('img');
         const br = dom.querySelector('br');
         const input = dom.querySelector('input');
-        
+
         assert.ok(img);
         assert.ok(br);
         assert.ok(input);
@@ -68,13 +68,13 @@ test('SimpleHtmlParser - Basic parsing', async (t) => {
         const html = '<div><!-- This is a comment --></div>';
         const dom = parser.parse(html);
         const div = dom.querySelector('div');
-        
+
         assert.strictEqual(div.children[0].type, 'comment');
         assert.strictEqual(div.children[0].content, ' This is a comment ');
     });
 });
 
-test('SimpleHtmlParser - Whitespace handling', async (t) => {
+test('SimpleHtmlParser - Whitespace handling', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('preserves whitespace', () => {
@@ -83,7 +83,7 @@ test('SimpleHtmlParser - Whitespace handling', async (t) => {
 </div>`;
         const dom = parser.parse(html);
         const output = dom.toHtml();
-        
+
         assert.strictEqual(output, html);
     });
 
@@ -95,12 +95,12 @@ test('SimpleHtmlParser - Whitespace handling', async (t) => {
 </table>`;
         const dom = parser.parse(html);
         const output = dom.toHtml();
-        
+
         assert.strictEqual(output, html);
     });
 });
 
-test('SimpleHtmlParser - Complex HTML', async (t) => {
+test('SimpleHtmlParser - Complex HTML', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('parses complex nested structure', () => {
@@ -121,12 +121,12 @@ test('SimpleHtmlParser - Complex HTML', async (t) => {
     </main>
 </div>`;
         const dom = parser.parse(html);
-        
+
         assert.ok(dom.querySelector('.wrapper'));
         assert.ok(dom.querySelector('#header'));
         assert.ok(dom.querySelector('nav'));
         assert.ok(dom.querySelector('ul'));
-        
+
         const links = dom.querySelectorAll('a');
         assert.strictEqual(links.length, 2);
         assert.strictEqual(links[0].getAttribute('href'), '/');
@@ -136,14 +136,14 @@ test('SimpleHtmlParser - Complex HTML', async (t) => {
     await t.test('handles malformed HTML gracefully', () => {
         const html = '<div><p>Unclosed paragraph</div>';
         const dom = parser.parse(html);
-        
+
         // Should still parse without throwing
         assert.ok(dom.querySelector('div'));
         assert.ok(dom.querySelector('p'));
     });
 });
 
-test('SimpleHtmlParser - Style tags', async (t) => {
+test('SimpleHtmlParser - Style tags', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('parses style tags as CSS', () => {
@@ -155,34 +155,34 @@ test('SimpleHtmlParser - Style tags', async (t) => {
 </style>`;
         const dom = parser.parse(html);
         const style = dom.querySelector('style');
-        
+
         assert.ok(style.styleBlock);
         assert.ok(style.children.length > 0);
-        
+
         const rules = style.cssFindRules('.card');
         assert.strictEqual(rules.length, 1);
-        assert.strictEqual(rules[0].cssDeclarations['background'], 'white');
+        assert.strictEqual(rules[0].cssDeclarations.background, 'white');
     });
 });
 
-test('SimpleHtmlParser - toHtml output', async (t) => {
+test('SimpleHtmlParser - toHtml output', async(t) => {
     const parser = new SimpleHtmlParser();
 
     await t.test('reconstructs original HTML', () => {
         const html = '<div id="app"><p class="text">Hello</p></div>';
         const dom = parser.parse(html);
         const output = dom.toHtml();
-        
+
         assert.strictEqual(output, html);
     });
 
     await t.test('handles comments in output', () => {
         const html = '<!-- Comment --><div>Content</div>';
         const dom = parser.parse(html);
-        
+
         const withoutComments = dom.toHtml(false);
         const withComments = dom.toHtml(true);
-        
+
         assert.ok(!withoutComments.includes('<!--'));
         assert.ok(withComments.includes('<!--'));
     });
