@@ -1,6 +1,6 @@
 {
     "name": "@caboodle-tech/simple-html-parser",
-    "version": "2.2.0",
+    "version": "2.3.0",
     "description": "Lightweight HTML/CSS parser with DOM-like manipulation.",
     "publishConfig": {
         "access": "public"
