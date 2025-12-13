@@ -234,16 +234,19 @@ class Node {
     }
 
     /**
-     * Adds one or more child nodes to this node.
-     * @param {...Node} nodes - The nodes to append
+     * Appends one or more child nodes to this node's children array.
+     * Accepts individual nodes or arrays of nodes.
+     * @param {...(Node|Node[])} nodes - The nodes to append (can be individual nodes or arrays)
      * @returns {Node[]} The appended nodes
      */
     appendChild(...nodes) {
-        for (const node of nodes) {
+        const flatNodes = nodes.flat();
+
+        for (const node of flatNodes) {
             node.parent = this;
             this.children.push(node);
         }
-        return nodes;
+        return flatNodes;
     }
 
     /**
@@ -343,15 +346,56 @@ class Node {
     }
 
     /**
-     * Creates a new Node instance.
-     * @param {string} type - Node type ('comment', 'text', 'root', 'tag-close', 'tag-open')
-     * @param {string} [name=''] - Tag name for element nodes
-     * @param {Object.<string, string>} [attributes={}] - Node attributes
-     * @param {Node|null} [parent=null] - Parent node
-     * @returns {Node} The created Node instance
+     * Creates a new element node with optional attributes and content.
+     * Returns an array containing [openingTag, closingTag] for non-void elements,
+     * or [openingTag] for void elements.
+     *
+     * @param {string} tagName - The HTML tag name (e.g., 'div', 'p', 'span')
+     * @param {Object} [attributes={}] - Element attributes as key-value pairs
+     * @param {string|Node|Node[]} [content=null] - Text content, single node, or array of nodes
+     * @returns {Node[]} Array of nodes [opening, closing?]
+     *
+     * @example
+     * // Non-void element - returns [opening, closing]
+     * const nodes = container.createNode('div', { class: 'box' }, 'Hello');
+     * container.appendChild(...nodes);
+     *
+     * @example
+     * // Void element - returns [opening]
+     * const nodes = container.createNode('img', { src: 'photo.jpg' });
+     * container.appendChild(...nodes);
      */
-    createNode(type, name = '', attributes = {}, parent = null) {
-        return new Node(type, name, attributes, parent);
+    createNode(tagName, attributes = {}, content = null) {
+        const openTag = new Node('tag-open', tagName, attributes);
+
+        // Add content if provided
+        if (content !== null) {
+            if (typeof content === 'string') {
+                const textNode = new Node('text');
+                textNode.content = content;
+                openTag.children.push(textNode);
+                textNode.parent = openTag;
+            } else if (Array.isArray(content)) {
+            // Flatten in case content contains arrays (from createNode)
+                const flatContent = content.flat();
+                for (const child of flatContent) {
+                    openTag.children.push(child);
+                    child.parent = openTag;
+                }
+            } else if (content instanceof Node) {
+                openTag.children.push(content);
+                content.parent = openTag;
+            }
+        }
+
+        // Return array with closing tag for non-void elements
+        if (!VOID_ELEMS.includes(tagName.toLowerCase())) {
+            const closeTag = new Node('tag-close', tagName);
+            return [openTag, closeTag];
+        }
+
+        // Void elements return only opening tag
+        return [openTag];
     }
 
     /**
@@ -1298,6 +1342,7 @@ class Node {
 
     /**
      * Inserts one or more nodes after this node.
+     * Accepts individual nodes or arrays of nodes.
      *
      * If a node being inserted is already in the tree, it will be moved (along with
      * its closing tag if applicable) to the new location.
@@ -1308,7 +1353,7 @@ class Node {
      * - tag-close: Inserts after the closing tag
      * - text/comment: Inserts after this node
      *
-     * @param {...Node} nodes - The nodes to insert
+     * @param {...(Node|Node[])} nodes - The nodes to insert
      * @returns {Node} This node for chaining
      * @throws {Error} If node has no parent or is not found in parent's children
      *
@@ -1317,13 +1362,15 @@ class Node {
      * divOpenTag.insertAfter(newNode);
      *
      * @example
-     * // Move B after A: <A/><B/> → <A/><B/>
-     * nodeA.insertAfter(nodeB);
+     * // Move A after B: <A/><B/> → <B/><A/>
+     * nodeB.insertAfter(nodeA);
      */
     insertAfter(...nodes) {
         if (!this.parent) {
             throw new Error('Cannot insert after a node with no parent');
         }
+
+        const flatNodes = nodes.flat();
 
         let targetNode = this;
 
@@ -1345,7 +1392,7 @@ class Node {
         insertIndex += 1;
 
         // Process each node
-        for (const node of nodes) {
+        for (const node of flatNodes) {
             let closingTag = null;
             let whitespace = null;
 
@@ -1356,7 +1403,6 @@ class Node {
                 // Extract the node (and its closing tag if applicable)
                 const extracted = this.#extractNode(node);
                 closingTag = extracted.closing;
-                // eslint-disable-next-line prefer-destructuring
                 whitespace = extracted.whitespace;
 
                 // If we extracted from the same parent and it was before our insert point,
@@ -1391,6 +1437,7 @@ class Node {
 
     /**
      * Inserts one or more nodes before this node.
+     * Accepts individual nodes or arrays of nodes.
      *
      * If a node being inserted is already in the tree, it will be moved (along with
      * its closing tag if applicable) to the new location.
@@ -1401,7 +1448,7 @@ class Node {
      * - tag-close: Inserts before the matching opening tag (outside the element)
      * - text/comment: Inserts before this node
      *
-     * @param {...Node} nodes - The nodes to insert
+     * @param {...(Node|Node[])} nodes - The nodes to insert
      * @returns {Node} This node for chaining
      * @throws {Error} If node has no parent or is not found in parent's children
      *
@@ -1418,6 +1465,8 @@ class Node {
             throw new Error('Cannot insert before a node with no parent');
         }
 
+        const flatNodes = nodes.flat();
+
         let targetNode = this;
 
         // If this is a closing tag, redirect to its opening tag
@@ -1429,8 +1478,8 @@ class Node {
 
             const openCandidate = this.parent.children[closeIndex - 1];
             if (openCandidate &&
-                openCandidate.type === 'tag-open' &&
-                openCandidate.name === this.name) {
+            openCandidate.type === 'tag-open' &&
+            openCandidate.name === this.name) {
                 targetNode = openCandidate;
             }
         }
@@ -1442,7 +1491,7 @@ class Node {
         }
 
         // Process each node
-        for (const node of nodes) {
+        for (const node of flatNodes) {
             let closingTag = null;
             let whitespace = null;
 
@@ -1453,7 +1502,6 @@ class Node {
                 // Extract the node (and its closing tag if applicable)
                 const extracted = this.#extractNode(node);
                 closingTag = extracted.closing;
-                // eslint-disable-next-line prefer-destructuring
                 whitespace = extracted.whitespace;
 
                 // If we extracted from the same parent and it was before our insert point,
@@ -1590,36 +1638,29 @@ class Node {
 
     /**
      * Replaces this node with one or more new nodes.
+     * Accepts individual nodes or arrays of nodes.
      *
-     * For tag-open nodes:
-     * - Removes both the opening and closing tags
-     * - Deletes all descendant nodes (content inside the element)
-     * - Handles the edge case where replacement nodes are descendants of this node
+     * If this node is an opening tag, both the opening and closing tags (and all content
+     * between them) will be removed and replaced with the new nodes.
      *
-     * Edge case handling:
-     * If a replacement node is a descendant of this node (e.g., replacing a
-     * great-grandparent with a great-grandchild), the replacement node is
-     * extracted first along with its entire subtree, then the rest is deleted.
-     *
-     * For other node types (text, comment, tag-close):
-     * - Simply replaces this node with the new nodes
-     *
-     * @param {...Node} newNodes - The node(s) to replace this one with
-     * @returns {Node} This node (now detached) for potential cleanup
+     * @param {...(Node|Node[])} newNodes - The nodes to replace this node with
+     * @returns {Node} This node for chaining
      * @throws {Error} If node has no parent or is not found in parent's children
      *
      * @example
-     * // Replace a div and all its contents with a new paragraph
-     * divTag.replaceWith(newParagraph);
+     * // Replace old node with new node
+     * oldNode.replaceWith(newNode);
      *
      * @example
-     * // Replace great-grandparent with great-grandchild
-     * outerDiv.replaceWith(innerDiv);
+     * // Replace with multiple nodes
+     * oldNode.replaceWith(node1, node2, node3);
      */
     replaceWith(...newNodes) {
         if (!this.parent) {
             throw new Error('Cannot replace a node with no parent');
         }
+
+        const flatNodes = newNodes.flat();
 
         const index = this.parent.children.indexOf(this);
         if (index === -1) {
@@ -1648,9 +1689,9 @@ class Node {
         // (This handles both the descendant case AND the sibling case)
         const extractedData = [];
 
-        for (const newNode of newNodes) {
+        for (const newNode of flatNodes) {
             if (newNode.parent) {
-                // Extract the node (and its closing tag if applicable)
+            // Extract the node (and its closing tag if applicable)
                 const extracted = this.#extractNode(newNode);
                 extractedData.push(extracted);
             } else {
@@ -1664,7 +1705,7 @@ class Node {
         // Insert new nodes at the same position
         let insertIndex = index;
         for (const extracted of extractedData) {
-            // Insert whitespace if present
+        // Insert whitespace if present
             if (extracted.whitespace) {
                 extracted.whitespace.parent = parent;
                 parent.children.splice(insertIndex, 0, extracted.whitespace);

@@ -1,6 +1,6 @@
-import { test } from 'node:test';
 import assert from 'node:assert';
-import { SimpleHtmlParser } from '../src/simple-html-parser.js';
+import { Node, SimpleHtmlParser } from '../src/simple-html-parser.js';
+import { test } from 'node:test';
 
 test('Node - insertBefore', async(t) => {
     const parser = new SimpleHtmlParser();
@@ -269,5 +269,185 @@ test('Node - Complex manipulation scenarios', async(t) => {
 
         assert.strictEqual(parent1.querySelectorAll('p').length, 0);
         assert.strictEqual(parent2.querySelectorAll('p').length, 1);
+    });
+});
+
+test('Node - createNode and auto-closing tags', async(t) => {
+    const parser = new SimpleHtmlParser();
+
+    await t.test('createNode creates element with text content', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const p = container.createNode('p', { class: 'text' }, 'Hello World');
+        container.appendChild(p);
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<p class="text">Hello World</p>'));
+    });
+
+    await t.test('createNode with appendChild auto-creates closing tag', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const div = container.createNode('div', { class: 'box' }, 'Content');
+        container.appendChild(div);
+
+        // Check that both opening and closing tags exist
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div class="box">Content</div>'));
+
+        // Verify in the tree structure
+        const openTags = container.children.filter((c) => { return c.type === 'tag-open' && c.name === 'div'; });
+        const closeTags = container.children.filter((c) => { return c.type === 'tag-close' && c.name === 'div'; });
+
+        assert.strictEqual(openTags.length, 1, 'Should have one opening div tag');
+        assert.strictEqual(closeTags.length, 1, 'Should have one closing div tag');
+    });
+
+    await t.test('createNode with void element does not create closing tag', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const img = container.createNode('img', { src: 'test.jpg', alt: 'Test' });
+        container.appendChild(img);
+
+        // Should only have opening tag, no closing tag
+        const closeTags = container.children.filter((c) => { return c.type === 'tag-close' && c.name === 'img'; });
+        assert.strictEqual(closeTags.length, 0, 'Void elements should not have closing tags');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<img src="test.jpg" alt="Test">'));
+        assert.ok(!output.includes('</img>'));
+    });
+
+    await t.test('createNode with array of child nodes', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const p1 = container.createNode('p', {}, 'First');
+        const p2 = container.createNode('p', {}, 'Second');
+        const div = container.createNode('div', { class: 'wrapper' }, [p1, p2]);
+
+        container.appendChild(div);
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div class="wrapper">'));
+        assert.ok(output.includes('<p>First</p>'));
+        assert.ok(output.includes('<p>Second</p>'));
+        assert.ok(output.includes('</div>'));
+    });
+
+    await t.test('createNode with single child node', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const span = container.createNode('span', {}, 'Inner');
+        const div = container.createNode('div', { class: 'outer' }, span);
+
+        container.appendChild(div);
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div class="outer"><span>Inner</span></div>'));
+    });
+
+    await t.test('createNode with empty content', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const div = container.createNode('div', { class: 'empty' });
+        container.appendChild(div);
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div class="empty"></div>'));
+    });
+
+    await t.test('appendChild does not duplicate closing tag if manually provided', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const openTag = new Node('tag-open', 'p', { id: 'test' });
+        const textNode = new Node('text');
+        textNode.content = 'Content';
+        openTag.appendChild(textNode);
+
+        const closeTag = new Node('tag-close', 'p');
+
+        // Manually append both tags
+        container.appendChild(openTag, closeTag);
+
+        // Should only have one closing tag (the one we provided)
+        const closeTags = container.children.filter((c) => { return c.type === 'tag-close' && c.name === 'p'; });
+        assert.strictEqual(closeTags.length, 1, 'Should not create duplicate closing tag');
+
+        const output = dom.toHtml();
+        assert.strictEqual((output.match(/<\/p>/g) || []).length, 1, 'Should have exactly one closing p tag');
+    });
+
+    await t.test('createNode works with nested structure', () => {
+        const dom = parser.parse('<body></body>');
+        const body = dom.querySelector('body');
+
+        const h1 = body.createNode('h1', {}, 'Title');
+        const p1 = body.createNode('p', {}, 'Paragraph 1');
+        const p2 = body.createNode('p', {}, 'Paragraph 2');
+        const article = body.createNode('article', { class: 'post' }, [h1, p1, p2]);
+
+        body.appendChild(article);
+
+        const output = dom.toHtml();
+
+        // Verify structure
+        assert.ok(output.includes('<article class="post">'));
+        assert.ok(output.includes('<h1>Title</h1>'));
+        assert.ok(output.includes('<p>Paragraph 1</p>'));
+        assert.ok(output.includes('<p>Paragraph 2</p>'));
+        assert.ok(output.includes('</article>'));
+
+        // Verify proper nesting
+        const articleStart = output.indexOf('<article');
+        const articleEnd = output.indexOf('</article>');
+        const h1Pos = output.indexOf('<h1>');
+
+        assert.ok(articleStart < h1Pos && h1Pos < articleEnd, 'h1 should be inside article');
+    });
+
+    await t.test('createNode works with all void elements', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const voidElements = ['img', 'br', 'hr', 'input', 'meta', 'link'];
+
+        for (const tag of voidElements) {
+            const element = container.createNode(tag, { id: `test-${tag}` });
+            container.appendChild(element);
+        }
+
+        const output = dom.toHtml();
+
+        // None should have closing tags
+        for (const tag of voidElements) {
+            assert.ok(!output.includes(`</${tag}>`), `${tag} should not have closing tag`);
+        }
+    });
+
+    await t.test('createNode with complex attributes', () => {
+        const dom = parser.parse('<div id="container"></div>');
+        const container = dom.querySelector('#container');
+
+        const div = container.createNode('div', {
+            id: 'complex',
+            class: 'class1 class2 class3',
+            'data-value': '123',
+            'data-name': 'test'
+        }, 'Content');
+
+        container.appendChild(div);
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('id="complex"'));
+        assert.ok(output.includes('class="class1 class2 class3"'));
+        assert.ok(output.includes('data-value="123"'));
+        assert.ok(output.includes('data-name="test"'));
     });
 });
