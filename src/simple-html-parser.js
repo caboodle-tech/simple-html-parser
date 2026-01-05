@@ -53,6 +53,7 @@ class SimpleHtmlParser {
      */
     parse(html) {
         const root = new Node('root');
+        root.parser = this; // Store parser reference for insertAdjacentHTML
         let currentNode = root;
         let pos = 0;
 

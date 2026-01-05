@@ -147,6 +147,38 @@ const b = dom.querySelector('#B');
 b.insertAfter(a); // Inserts A after B
 ```
 
+##### `insertAdjacentHTML(position: string, html: string): Node`
+
+Insert HTML string at a specific position relative to this element. Mimics the browser's `insertAdjacentHTML` API.
+
+**Parameters:**
+- `position` (string): One of:
+  - `'beforebegin'`: Before the element (outside)
+  - `'afterbegin'`: At the start of element's children (inside)
+  - `'beforeend'`: At the end of element's children (inside)
+  - `'afterend'`: After the element (outside)
+- `html` (string): HTML string to parse and insert
+
+**Returns:** `Node` - This node for chaining
+
+```javascript
+const container = dom.querySelector('#container');
+
+// Insert before element
+container.insertAdjacentHTML('beforebegin', '<p>Before</p>');
+
+// Insert at start of children
+container.insertAdjacentHTML('afterbegin', '<span>Start</span>');
+
+// Insert at end of children
+container.insertAdjacentHTML('beforeend', '<span>End</span>');
+
+// Insert after element
+container.insertAdjacentHTML('afterend', '<p>After</p>');
+```
+
+**Note:** The parser instance used to create the DOM tree is automatically used for parsing the HTML string, preserving parser configuration (e.g., special tags).
+
 ##### `replaceWith(...nodes: Node[]): Node`
 
 Replace this node with other nodes.
@@ -337,6 +369,7 @@ rowA.insertBefore(rowB); // B now comes before A
 ### Creating New Elements
 
 ```javascript
+// Method 1: Create nodes manually
 const div = new Node('tag-open', 'div', { class: 'new' });
 const text = new Node('text');
 text.content = 'Hello';
@@ -344,6 +377,10 @@ div.appendChild(text);
 
 const parent = dom.querySelector('#parent');
 parent.appendChild(div);
+
+// Method 2: Use insertAdjacentHTML (simpler for HTML strings)
+const parent2 = dom.querySelector('#parent');
+parent2.insertAdjacentHTML('beforeend', '<div class="new">Hello</div>');
 ```
 
 ### CSS Manipulation

@@ -1535,6 +1535,115 @@ class Node {
     }
 
     /**
+     * Inserts HTML string at a specific position relative to this element.
+     * Mimics the browser's insertAdjacentHTML API.
+     *
+     * @param {string} position - Position relative to element:
+     *   - 'beforebegin': Before the element (outside)
+     *   - 'afterbegin': At the start of element's children (inside)
+     *   - 'beforeend': At the end of element's children (inside)
+     *   - 'afterend': After the element (outside)
+     * @param {string} html - HTML string to parse and insert
+     * @returns {Node} This node for chaining
+     * @throws {Error} If position is invalid, parser not found, or operation not allowed
+     *
+     * @example
+     * // <div id="container">Hello</div>
+     * container.insertAdjacentHTML('beforebegin', '<p>Before</p>');
+     * // <p>Before</p><div id="container">Hello</div>
+     *
+     * @example
+     * container.insertAdjacentHTML('afterbegin', '<span>Start</span>');
+     * // <div id="container"><span>Start</span>Hello</div>
+     *
+     * @example
+     * container.insertAdjacentHTML('beforeend', '<span>End</span>');
+     * // <div id="container">Hello<span>End</span></div>
+     *
+     * @example
+     * container.insertAdjacentHTML('afterend', '<p>After</p>');
+     * // <div id="container">Hello</div><p>After</p>
+     */
+    insertAdjacentHTML(position, html) {
+        // Validate position
+        const validPositions = ['beforebegin', 'afterbegin', 'beforeend', 'afterend'];
+        if (!validPositions.includes(position)) {
+            throw new Error(`Invalid position: ${position}. Must be one of: ${validPositions.join(', ')}`);
+        }
+
+        // Find parser from root node
+        const root = this.#findRoot();
+        const parser = root.parser;
+        if (!parser || typeof parser.parse !== 'function') {
+            throw new Error('Parser not found. Node tree must be created via parser.parse()');
+        }
+
+        // Parse HTML
+        const parsedRoot = parser.parse(html);
+        const nodesToInsert = parsedRoot.children.flat(); // Get all top-level nodes
+
+        if (nodesToInsert.length === 0) {
+            return this; // Nothing to insert
+        }
+
+        // Handle closing tags (redirect to opening tag)
+        let targetNode = this;
+        if (this.type === 'tag-close') {
+            // Find matching opening tag (same logic as insertBefore)
+            const closeIndex = this.parent.children.indexOf(this);
+            if (closeIndex !== -1) {
+                const openCandidate = this.parent.children[closeIndex - 1];
+                if (openCandidate?.type === 'tag-open' && openCandidate.name === this.name) {
+                    targetNode = openCandidate;
+                }
+            }
+        }
+
+        // Route based on position
+        switch (position) {
+            case 'beforebegin':
+                if (!targetNode.parent) {
+                    throw new Error('Cannot insert beforebegin on node with no parent');
+                }
+                targetNode.insertBefore(...nodesToInsert);
+                break;
+
+            case 'afterbegin':
+                if (targetNode.type !== 'tag-open') {
+                    throw new Error('afterbegin can only be used on element nodes');
+                }
+                if (VOID_ELEMS.includes(targetNode.name)) {
+                    throw new Error('afterbegin cannot be used on void elements');
+                }
+                // Insert at start of children array
+                for (let i = nodesToInsert.length - 1; i >= 0; i--) {
+                    nodesToInsert[i].parent = targetNode;
+                    targetNode.children.unshift(nodesToInsert[i]);
+                }
+                break;
+
+            case 'beforeend':
+                if (targetNode.type !== 'tag-open') {
+                    throw new Error('beforeend can only be used on element nodes');
+                }
+                if (VOID_ELEMS.includes(targetNode.name)) {
+                    throw new Error('beforeend cannot be used on void elements');
+                }
+                targetNode.appendChild(...nodesToInsert);
+                break;
+
+            case 'afterend':
+                if (!targetNode.parent) {
+                    throw new Error('Cannot insert afterend on node with no parent');
+                }
+                targetNode.insertAfter(...nodesToInsert);
+                break;
+        }
+
+        return this;
+    }
+
+    /**
      * Checks if a node is a void element (self-closing tag with no closing tag).
      * @param {Node} node - The node to check
      * @returns {boolean} True if the node is a void element

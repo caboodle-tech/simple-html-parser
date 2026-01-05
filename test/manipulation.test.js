@@ -451,3 +451,198 @@ test('Node - createNode and auto-closing tags', async(t) => {
         assert.ok(output.includes('data-name="test"'));
     });
 });
+
+test('Node - insertAdjacentHTML', async(t) => {
+    const parser = new SimpleHtmlParser();
+
+    await t.test('beforebegin - inserts before element', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('beforebegin', '<p>Before</p>');
+
+        const output = dom.toHtml();
+        const beforeIndex = output.indexOf('<p>Before</p>');
+        const containerIndex = output.indexOf('id="container"');
+
+        assert.ok(beforeIndex < containerIndex, 'Before should come before container');
+    });
+
+    await t.test('afterbegin - inserts at start of children', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('afterbegin', '<span>Start</span>');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div id="container"><span>Start</span>Hello</div>'));
+    });
+
+    await t.test('beforeend - inserts at end of children', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('beforeend', '<span>End</span>');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div id="container">Hello<span>End</span></div>'));
+    });
+
+    await t.test('afterend - inserts after element', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('afterend', '<p>After</p>');
+
+        const output = dom.toHtml();
+        const containerEnd = output.indexOf('</div>');
+        const afterIndex = output.indexOf('<p>After</p>');
+
+        assert.ok(afterIndex > containerEnd, 'After should come after container');
+    });
+
+    await t.test('handles multiple elements in HTML string', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('beforeend', '<span>A</span><span>B</span>');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<span>A</span>'));
+        assert.ok(output.includes('<span>B</span>'));
+        const aIndex = output.indexOf('<span>A</span>');
+        const bIndex = output.indexOf('<span>B</span>');
+        assert.ok(aIndex < bIndex, 'A should come before B');
+    });
+
+    await t.test('handles empty HTML string', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('beforeend', '');
+
+        const output = dom.toHtml();
+        assert.strictEqual(output, '<div id="container">Hello</div>');
+    });
+
+    await t.test('throws error for invalid position', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        assert.throws(() => {
+            container.insertAdjacentHTML('invalid', '<p>Test</p>');
+        }, /Invalid position/);
+    });
+
+    await t.test('throws error for afterbegin on void element', () => {
+        const html = '<div><img id="img"></div>';
+        const dom = parser.parse(html);
+        const img = dom.querySelector('#img');
+
+        assert.throws(() => {
+            img.insertAdjacentHTML('afterbegin', '<span>Test</span>');
+        }, /afterbegin cannot be used on void elements/);
+    });
+
+    await t.test('throws error for beforeend on void element', () => {
+        const html = '<div><img id="img"></div>';
+        const dom = parser.parse(html);
+        const img = dom.querySelector('#img');
+
+        assert.throws(() => {
+            img.insertAdjacentHTML('beforeend', '<span>Test</span>');
+        }, /beforeend cannot be used on void elements/);
+    });
+
+    await t.test('throws error for beforebegin on root node', () => {
+        const html = '<div>Hello</div>';
+        const dom = parser.parse(html);
+
+        assert.throws(() => {
+            dom.insertAdjacentHTML('beforebegin', '<p>Test</p>');
+        }, /Cannot insert beforebegin on node with no parent/);
+    });
+
+    await t.test('throws error for afterend on root node', () => {
+        const html = '<div>Hello</div>';
+        const dom = parser.parse(html);
+
+        assert.throws(() => {
+            dom.insertAdjacentHTML('afterend', '<p>Test</p>');
+        }, /Cannot insert afterend on node with no parent/);
+    });
+
+    await t.test('works with closing tag (redirects to opening tag)', () => {
+        const html = '<div id="container">Hello</div><p>Other</p>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+        // Find the closing tag
+        const root = dom;
+        const closingTag = root.children.find(child => 
+            child.type === 'tag-close' && child.name === 'div'
+        );
+
+        closingTag.insertAdjacentHTML('afterend', '<span>After</span>');
+
+        const output = dom.toHtml();
+        const containerEnd = output.indexOf('</div>');
+        const afterIndex = output.indexOf('<span>After</span>');
+        assert.ok(afterIndex > containerEnd, 'Should insert after closing tag');
+    });
+
+    await t.test('preserves parser configuration (special tags)', () => {
+        const customParser = new SimpleHtmlParser(['script', 'custom']);
+        const html = '<div id="container">Hello</div>';
+        const dom = customParser.parse(html);
+        const container = dom.querySelector('#container');
+
+        // Should use the same parser config
+        container.insertAdjacentHTML('beforeend', '<script>alert("test")</script>');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<script>alert("test")</script>'));
+    });
+
+    await t.test('throws error when parser not found (manually created node)', () => {
+        const node = new Node('tag-open', 'div');
+
+        assert.throws(() => {
+            node.insertAdjacentHTML('beforeend', '<span>Test</span>');
+        }, /Parser not found/);
+    });
+
+    await t.test('complex nested HTML insertion', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        container.insertAdjacentHTML('beforeend', '<div class="nested"><p>Nested</p></div>');
+
+        const output = dom.toHtml();
+        assert.ok(output.includes('<div class="nested">'));
+        assert.ok(output.includes('<p>Nested</p>'));
+        assert.ok(output.includes('</div>'));
+    });
+
+    await t.test('chaining works', () => {
+        const html = '<div id="container">Hello</div>';
+        const dom = parser.parse(html);
+        const container = dom.querySelector('#container');
+
+        const result = container
+            .insertAdjacentHTML('afterbegin', '<span>A</span>')
+            .insertAdjacentHTML('beforeend', '<span>B</span>');
+
+        assert.strictEqual(result, container);
+        const output = dom.toHtml();
+        assert.ok(output.includes('<span>A</span>'));
+        assert.ok(output.includes('<span>B</span>'));
+    });
+});
