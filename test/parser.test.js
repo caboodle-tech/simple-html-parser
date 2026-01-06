@@ -187,3 +187,60 @@ test('SimpleHtmlParser - toHtml output', async(t) => {
         assert.ok(withComments.includes('<!--'));
     });
 });
+
+test('SimpleHtmlParser - Iterator', async(t) => {
+    const parser = new SimpleHtmlParser();
+
+    await t.test('iterator works correctly on parsed HTML', () => {
+        const html = '<div><p>Text</p><span>More</span></div>';
+        const dom = parser.parse(html);
+
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes in iterator');
+            seen.add(node);
+        }
+
+        assert.ok(nodes.length > 0, 'Should iterate through nodes');
+    });
+
+    await t.test('iterator works correctly with nested structures', () => {
+        const html = '<div><p><span>Deep</span></p></div>';
+        const dom = parser.parse(html);
+
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes in nested structure');
+            seen.add(node);
+        }
+    });
+
+    await t.test('iterator works correctly with tables', () => {
+        const html = '<table><tr><td>Cell</td></tr></table>';
+        const dom = parser.parse(html);
+
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes in table structure');
+            seen.add(node);
+        }
+    });
+});

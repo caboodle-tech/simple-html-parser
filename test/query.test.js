@@ -261,3 +261,92 @@ test('Node - Edge cases', async(t) => {
         assert.strictEqual(div.getAttribute('title'), "It's fine");
     });
 });
+
+test('Node - Iterator after query operations', async(t) => {
+    const parser = new SimpleHtmlParser();
+
+    await t.test('iterator works correctly after querySelector', () => {
+        const html = '<div><p id="test">Text</p><span>More</span></div>';
+        const dom = parser.parse(html);
+        const p = dom.querySelector('#test');
+
+        assert.ok(p);
+
+        // Iterate and check for duplicates
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes after querySelector');
+            seen.add(node);
+        }
+    });
+
+    await t.test('iterator works correctly after querySelectorAll', () => {
+        const html = '<div><p>One</p><p>Two</p><p>Three</p></div>';
+        const dom = parser.parse(html);
+        const paragraphs = dom.querySelectorAll('p');
+
+        assert.strictEqual(paragraphs.length, 3);
+
+        // Iterate and check for duplicates
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes after querySelectorAll');
+            seen.add(node);
+        }
+    });
+
+    await t.test('iterator works correctly after setAttribute', () => {
+        const html = '<div></div>';
+        const dom = parser.parse(html);
+        const div = dom.querySelector('div');
+
+        div.setAttribute('id', 'app');
+        div.setAttribute('class', 'container');
+
+        // Iterate and check for duplicates
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes after setAttribute');
+            seen.add(node);
+        }
+    });
+
+    await t.test('iterator works correctly after removeAttribute', () => {
+        const html = '<div id="app" class="container"></div>';
+        const dom = parser.parse(html);
+        const div = dom.querySelector('div');
+
+        div.removeAttribute('class');
+
+        // Iterate and check for duplicates
+        const nodes = [];
+        for (const node of dom) {
+            nodes.push(node);
+            if (nodes.length > 50) break; // Safety limit
+        }
+
+        const seen = new Set();
+        for (const node of nodes) {
+            assert.ok(!seen.has(node), 'No duplicate nodes after removeAttribute');
+            seen.add(node);
+        }
+    });
+});

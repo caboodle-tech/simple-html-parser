@@ -211,24 +211,23 @@ class Node {
                 // We've already processed currentNode, now get the next one
                 const nextNode = getNextNode(currentNode);
 
-                // Keep a reference to the current node before updating
-                const nodeToReturn = currentNode;
-
                 // Update currentNode for the next iteration
                 currentNode = nextNode;
 
-                // Define the skipChildren method for the new node if it exists
-                if (currentNode) {
-
-                    currentNode.skipChildren = function skipChildren() {
-                        skipChildrenForCurrentNode = true;
-                    };
-                } else {
+                // If there's no next node, we're done
+                if (!currentNode) {
                     // We're done with traversal, restore the original remove method
                     Node.prototype.remove = originalRemove;
+                    return { value: undefined, done: true };
                 }
 
-                return { value: nodeToReturn, done: false };
+                // Define the skipChildren method for the new node
+                currentNode.skipChildren = function skipChildren() {
+                    skipChildrenForCurrentNode = true;
+                };
+
+                // Return the next node (which is now currentNode)
+                return { value: currentNode, done: false };
             }
         };
     }
@@ -236,6 +235,10 @@ class Node {
     /**
      * Appends one or more child nodes to this node's children array.
      * Accepts individual nodes or arrays of nodes.
+     *
+     * If a node being appended is already in the tree, it will be moved (along with
+     * its closing tag if applicable) to the new location.
+     *
      * @param {...(Node|Node[])} nodes - The nodes to append (can be individual nodes or arrays)
      * @returns {Node[]} The appended nodes
      */
@@ -243,8 +246,25 @@ class Node {
         const flatNodes = nodes.flat();
 
         for (const node of flatNodes) {
+            let closingTag = null;
+
+            // If the node is already in the tree, extract it first
+            if (node.parent) {
+                const extracted = this.#extractNode(node);
+                closingTag = extracted.closing;
+                // Note: We don't append whitespace here as it was context-specific
+                // to the old location (it was before the node, not after)
+            }
+
+            // Append the opening tag
             node.parent = this;
             this.children.push(node);
+
+            // If there's a closing tag, append it too
+            if (closingTag) {
+                closingTag.parent = this;
+                this.children.push(closingTag);
+            }
         }
         return flatNodes;
     }
