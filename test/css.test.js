@@ -332,6 +332,203 @@ p { padding: 5px; }
         assert.ok(output.includes('background: white'));
         assert.ok(output.includes('padding: 1rem'));
     });
+
+    await t.test('preserves @keyframes and @media in toHtml (issue #2)', () => {
+        const html = `<style>
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@media (max-width: 768px) {
+    .container { padding: 0.5rem; }
+}
+.plain { color: red; }
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@keyframes'), 'output should contain @keyframes');
+        assert.ok(output.includes('fadeIn'), 'output should contain keyframes name');
+        assert.ok(output.includes('@media'), 'output should contain @media');
+        assert.ok(output.includes('max-width: 768px'), 'output should contain media query');
+        assert.ok(output.includes('.plain'), 'output should contain plain rule');
+        assert.ok(output.includes('color: red'), 'output should contain declaration');
+    });
+
+    await t.test('preserves keyframe body (from/to and declarations) in toHtml', () => {
+        const html = `<style>
+@keyframes fadeIn {
+    from { opacity: 0; }
+    50% { opacity: 0.5; }
+    to { opacity: 1; }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('from'), 'output should contain from keyframe');
+        assert.ok(output.includes('to'), 'output should contain to keyframe');
+        assert.ok(output.includes('50%'), 'output should contain percentage keyframe');
+        assert.ok(output.includes('opacity: 0'), 'output should contain keyframe declaration');
+        assert.ok(output.includes('opacity: 1'), 'output should contain keyframe declaration');
+    });
+
+    await t.test('preserves nested at-rules in toHtml (@media containing @supports)', () => {
+        const html = `<style>
+@media (min-width: 600px) {
+    @supports (display: grid) {
+        .grid { display: grid; gap: 1rem; }
+    }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@media'), 'output should contain @media');
+        assert.ok(output.includes('@supports'), 'output should contain nested @supports');
+        assert.ok(output.includes('display: grid'), 'output should contain supports condition and rule');
+        assert.ok(output.includes('.grid'), 'output should contain nested rule selector');
+        assert.ok(output.includes('gap: 1rem'), 'output should contain nested declaration');
+    });
+
+    await t.test('preserves @supports, @container, @layer in toHtml', () => {
+        const html = `<style>
+@supports (aspect-ratio: 1) {
+    .box { aspect-ratio: 1; }
+}
+@container sidebar (min-width: 300px) {
+    .wide { width: 100%; }
+}
+@layer base {
+    .reset { margin: 0; }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@supports'), 'output should contain @supports');
+        assert.ok(output.includes('aspect-ratio: 1'), 'output should contain supports condition');
+        assert.ok(output.includes('@container'), 'output should contain @container');
+        assert.ok(output.includes('min-width: 300px'), 'output should contain container query');
+        assert.ok(output.includes('@layer'), 'output should contain @layer');
+        assert.ok(output.includes('.reset'), 'output should contain layer rule');
+        assert.ok(output.includes('margin: 0'), 'output should contain layer declaration');
+    });
+
+    await t.test('preserves statement at-rules (@import, @charset) in toHtml', () => {
+        const html = `<style>
+@charset "UTF-8";
+@import url('theme.css');
+.rule { color: blue; }
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@charset'), 'output should contain @charset');
+        assert.ok(output.includes('UTF-8'), 'output should contain charset value');
+        assert.ok(output.includes('@import'), 'output should contain @import');
+        assert.ok(output.includes('theme.css'), 'output should contain import url');
+        assert.ok(output.includes('.rule'), 'output should contain following rule');
+    });
+
+    await t.test('cssToString with combineDeclarations preserves at-rules in order', () => {
+        const html = `<style>
+.foo { color: red; }
+@media (max-width: 500px) { .bar { display: block; } }
+.foo { padding: 1rem; }
+</style>`;
+        const dom = parser.parse(html);
+        const style = dom.querySelector('style');
+        const output = style.cssToString({ combineDeclarations: true });
+
+        assert.ok(output.includes('.foo'), 'should contain combined .foo rule');
+        assert.ok(output.includes('color: red') && output.includes('padding: 1rem'), '.foo should have both declarations');
+        assert.ok(output.includes('@media'), 'should contain at-rule');
+        assert.ok(output.includes('.bar'), 'should contain rule inside media');
+        const mediaPos = output.indexOf('@media');
+        const fooPos = output.indexOf('.foo');
+        assert.ok(mediaPos > fooPos, '@media should appear after first .foo (order preserved)');
+    });
+
+    await t.test('empty at-rule block round-trips in toHtml', () => {
+        const html = `<style>
+@layer named { }
+.rule { x: 1; }
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@layer'), 'output should contain @layer');
+        assert.ok(output.includes('named'), 'output should contain layer name');
+        assert.ok(output.includes('.rule'), 'output should contain following rule');
+        assert.ok(output.includes('x: 1'), 'output should contain declaration');
+    });
+
+    await t.test('preserves deeply nested at-rules (@media > @supports > @layer)', () => {
+        const html = `<style>
+@media (min-width: 900px) {
+    @supports (display: grid) {
+        @layer layout {
+            .grid { display: grid; gap: 1rem; }
+        }
+    }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@media'), 'output should contain @media');
+        assert.ok(output.includes('@supports'), 'output should contain @supports');
+        assert.ok(output.includes('@layer'), 'output should contain @layer');
+        assert.ok(output.includes('layout'), 'output should contain layer name');
+        assert.ok(output.includes('.grid'), 'output should contain innermost rule');
+        assert.ok(output.includes('display: grid') && output.includes('gap: 1rem'), 'output should contain declarations');
+    });
+
+    await t.test('preserves @scope in toHtml', () => {
+        const html = `<style>
+@scope (.card) to (.card-footer) {
+    .title { font-weight: bold; }
+    .body { color: #333; }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@scope'), 'output should contain @scope');
+        assert.ok(output.includes('.card'), 'output should contain scope selector');
+        assert.ok(output.includes('.card-footer'), 'output should contain scope limit');
+        assert.ok(output.includes('.title'), 'output should contain scoped rule');
+        assert.ok(output.includes('font-weight: bold'), 'output should contain declaration');
+    });
+
+    await t.test('statement @layer name; round-trips (parsed as at-rule, may emit block)', () => {
+        const html = `<style>
+@layer base;
+.rule { margin: 0; }
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@layer'), 'output should contain @layer');
+        assert.ok(output.includes('base'), 'output should contain layer name');
+        assert.ok(output.includes('.rule'), 'output should contain following rule');
+    });
+
+    await t.test('cssToString singleLine true emits at-rules', () => {
+        const html = `<style>
+@media (max-width: 600px) { .narrow { width: 100%; } }
+@keyframes pulse { 50% { opacity: 0.5; } }
+</style>`;
+        const dom = parser.parse(html);
+        const style = dom.querySelector('style');
+        const output = style.cssToString({ singleLine: true });
+
+        assert.ok(output.includes('@media'), 'singleLine output should contain @media');
+        assert.ok(output.includes('@keyframes'), 'singleLine output should contain @keyframes');
+        assert.ok(output.includes('.narrow'), 'singleLine output should contain rule in media');
+        assert.ok(output.includes('opacity: 0.5'), 'singleLine output should contain keyframe declaration');
+    });
 });
 
 test('CSSParser - Edge cases', async(t) => {

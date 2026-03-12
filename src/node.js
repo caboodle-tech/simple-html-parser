@@ -270,6 +270,38 @@ class Node {
     }
 
     /**
+     * Builds a CSS at-rule string (@media, @keyframes, @supports, etc.).
+     * Statement at-rules (@import, @charset, @namespace) emit "@name params;".
+     * Block at-rules emit "@name params { body }" with body from #cssTreeToString.
+     * @param {Node} atRuleNode - css-at-rule node
+     * @param {Object} options - Same shape as processedOptions in cssToString (indent in spaces)
+     * @returns {string} Serialized at-rule
+     * @private
+     */
+    #buildCssAtRule(atRuleNode, options) {
+        const { singleLine = false, indent = 0 } = options;
+        const spaces = singleLine ? '' : ' '.repeat(indent);
+        const newline = singleLine ? ' ' : '\n';
+        const name = atRuleNode.cssName || '';
+        const params = (atRuleNode.cssParams || '').trim();
+
+        const statementAtRules = ['import', 'charset', 'namespace'];
+        if (statementAtRules.includes(name)) {
+            return `${spaces}@${name}${params ? ` ${params}` : ''};`;
+        }
+
+        const indentLevel = Math.floor(indent / 4);
+        const body = atRuleNode.children?.length
+            ? this.#cssTreeToString(atRuleNode.children, indentLevel + 1)
+            : '';
+
+        if (singleLine) {
+            return `${spaces}@${name}${params ? ` ${params}` : ''} {${body}}`;
+        }
+        return `${spaces}@${name}${params ? ` ${params}` : ''} {${newline}${body}${newline}${spaces}}`;
+    }
+
+    /**
      * Helper method to build a single CSS rule string.
      * @private
      */
@@ -722,9 +754,10 @@ class Node {
         // Normalize nodes to array
         const ruleArray = Array.isArray(nodesToConvert) ? nodesToConvert : [nodesToConvert];
 
-        // Group rules by selector if combining declarations
+        // Group rules by selector if combining declarations; preserve order for at-rules and comments
         if (combineDeclarations) {
             const rulesBySelector = new Map();
+            const emittedSelectors = new Set();
 
             for (const rule of ruleArray) {
                 if (rule.type === 'css-rule') {
@@ -735,55 +768,59 @@ class Node {
                     }
 
                     rulesBySelector.get(selector).push(rule);
-                } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
-                    // Handle comments separately
-                    const key = `__comment_${Math.random()}`;
-                    rulesBySelector.set(key, [rule]);
                 }
             }
 
-            // Process each selector group
+            // Emit in original order: combined rules on first occurrence, at-rules and comments in place
             let result = '';
-            for (const [selector, rules] of rulesBySelector) {
-                // Handle comments
-                if (selector.startsWith('__comment_')) {
-                    const spaces = singleLine ? '' : ' '.repeat(indent);
-                    result += `${spaces}/*${rules[0].content}*/`;
-                    if (!singleLine) {
-                        result += '\n';
+            for (const rule of ruleArray) {
+                if (rule.type === 'css-rule') {
+                    const selector = rule.cssSelector;
+
+                    if (emittedSelectors.has(selector)) {
+                        continue;
                     }
-                    continue;
-                }
+                    emittedSelectors.add(selector);
 
-                // Combine all declarations for this selector
-                const combinedDeclarations = {};
-                const nestedChildren = [];
+                    const rules = rulesBySelector.get(selector);
+                    const combinedDeclarations = {};
+                    const nestedChildren = [];
 
-                for (const rule of rules) {
-                    if (rule.cssDeclarations) {
-                        Object.assign(combinedDeclarations, rule.cssDeclarations);
-                    }
+                    for (const r of rules) {
+                        if (r.cssDeclarations) {
+                            Object.assign(combinedDeclarations, r.cssDeclarations);
+                        }
 
-                    // Collect nested rules from first occurrence only
-                    if (includeNestedRules && rule.children && nestedChildren.length === 0) {
-                        for (const child of rule.children) {
-                            if (child.type === 'css-rule' || child.type === 'css-at-rule') {
-                                nestedChildren.push(child);
+                        if (includeNestedRules && r.children && nestedChildren.length === 0) {
+                            for (const child of r.children) {
+                                if (child.type === 'css-rule' || child.type === 'css-at-rule') {
+                                    nestedChildren.push(child);
+                                }
                             }
                         }
                     }
-                }
 
-                // Build CSS for this selector
-                result += this.#buildCssRule(
-                    selector,
-                    combinedDeclarations,
-                    nestedChildren,
-                    processedOptions
-                );
+                    result += this.#buildCssRule(
+                        selector,
+                        combinedDeclarations,
+                        nestedChildren,
+                        processedOptions
+                    );
 
-                if (!singleLine) {
-                    result += '\n';
+                    if (!singleLine) {
+                        result += '\n';
+                    }
+                } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
+                    const spaces = singleLine ? '' : ' '.repeat(indent);
+                    result += `${spaces}/*${rule.content}*/`;
+                    if (!singleLine) {
+                        result += '\n';
+                    }
+                } else if (rule.type === 'css-at-rule') {
+                    result += this.#buildCssAtRule(rule, processedOptions);
+                    if (!singleLine) {
+                        result += '\n';
+                    }
                 }
             }
 
@@ -818,6 +855,11 @@ class Node {
             } else if (rule.type === 'comment' && rule.commentType === 'css' && includeComments) {
                 const spaces = singleLine ? '' : ' '.repeat(indent);
                 result += `${spaces}/*${rule.content}*/`;
+                if (!singleLine) {
+                    result += '\n';
+                }
+            } else if (rule.type === 'css-at-rule') {
+                result += this.#buildCssAtRule(rule, processedOptions);
                 if (!singleLine) {
                     result += '\n';
                 }
