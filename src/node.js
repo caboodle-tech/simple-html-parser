@@ -12,6 +12,16 @@ const REGEX = {
 
 const VOID_ELEMS = ['img', 'br', 'hr', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr'];
 
+/** Tag names that add line breaks around them for {@link Node#innerText} getter heuristics */
+const INNERTEXT_BLOCK_TAGS = new Set([
+    'address', 'article', 'blockquote', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'form',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'li', 'nav', 'p', 'pre', 'section',
+    'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr'
+]);
+
+/** If a string assigned to innerText matches this, the setter forwards to innerHTML instead */
+const INNERTEXT_STRING_MAYBE_HTML = /<(?:!--|\/?[a-zA-Z][\w-]*)/;
+
 /**
  * Represents a DOM node in the parsed HTML tree.
  */
@@ -291,9 +301,9 @@ class Node {
         }
 
         const indentLevel = Math.floor(indent / 4);
-        const body = atRuleNode.children?.length
-            ? this.#cssTreeToString(atRuleNode.children, indentLevel + 1)
-            : '';
+        const body = atRuleNode.children?.length ?
+            this.#cssTreeToString(atRuleNode.children, indentLevel + 1) :
+            '';
 
         if (singleLine) {
             return `${spaces}@${name}${params ? ` ${params}` : ''} {${body}}`;
@@ -1403,6 +1413,255 @@ class Node {
     }
 
     /**
+     * When this is tag-close, returns the matching tag-open sibling, or null.
+     * @returns {Node|null}
+     */
+    #matchingOpenTagIfClose() {
+        if (this.type !== 'tag-close' || !this.parent) {
+            return null;
+        }
+        const closeIndex = this.parent.children.indexOf(this);
+        if (closeIndex === -1) {
+            return null;
+        }
+        const openCandidate = this.parent.children[closeIndex - 1];
+        if (openCandidate?.type === 'tag-open' && openCandidate.name === this.name) {
+            return openCandidate;
+        }
+        return null;
+    }
+
+    /**
+     * Clears interior children of an element (does not remove the adjacent tag-close sibling).
+     * @param {Node} openTag - Opening tag node
+     */
+    #detachInteriorChildren(openTag) {
+        const previous = openTag.children;
+        openTag.children = [];
+        for (const child of previous) {
+            child.parent = null;
+        }
+    }
+
+    /**
+     * Resolves this node for reading innerHTML / innerText (includes root).
+     * @returns {Node}
+     */
+    #resolveOpenTagForInteriorRead() {
+        if (this.type === 'tag-close') {
+            const open = this.#matchingOpenTagIfClose();
+            if (!open) {
+                throw new Error('Could not resolve a matching opening tag for this closing tag');
+            }
+            return open;
+        }
+        if (this.type === 'root') {
+            return this;
+        }
+        if (this.type === 'text' || this.type === 'comment') {
+            throw new Error('innerHTML and innerText are not available on text or comment nodes');
+        }
+        if (this.type !== 'tag-open') {
+            throw new Error('innerHTML and innerText are only available on element nodes');
+        }
+        return this;
+    }
+
+    /**
+     * Resolves this node for assigning innerHTML / innerText. Void elements return null (no-op).
+     * @returns {Node|null} Opening tag, or null for void elements
+     */
+    #resolveOpenTagForInteriorMutation() {
+        let el = this;
+        if (this.type === 'tag-close') {
+            const open = this.#matchingOpenTagIfClose();
+            if (!open) {
+                throw new Error('Could not resolve a matching opening tag for this closing tag');
+            }
+            el = open;
+        }
+        if (el.type === 'root') {
+            throw new Error('Cannot assign innerHTML or innerText on the root node');
+        }
+        if (el.type === 'text' || el.type === 'comment') {
+            throw new Error('Cannot assign innerHTML or innerText on text or comment nodes');
+        }
+        if (el.type !== 'tag-open') {
+            throw new Error('Cannot assign innerHTML or innerText on this node type');
+        }
+        if (VOID_ELEMS.includes(el.name)) {
+            return null;
+        }
+        return el;
+    }
+
+    /**
+     * @param {Node} root - Document root from parse()
+     * @returns {*} Parser instance
+     */
+    #requireHtmlParser(root) {
+        const { parser } = root;
+        if (!parser || typeof parser.parse !== 'function') {
+            throw new Error('Parser not found. Node tree must be created via parser.parse()');
+        }
+        return parser;
+    }
+
+    /**
+     * Approximates visible text inside an element (no real layout engine).
+     * @param {Node} openTag - Element or root
+     * @returns {string}
+     */
+    #collectInnerTextFrom(openTag) {
+        const parts = [];
+
+        const pushBlockGap = () => {
+            if (parts.length === 0) {
+                return;
+            }
+            const last = parts[parts.length - 1];
+            if (!last.endsWith('\n')) {
+                parts.push('\n');
+            }
+        };
+
+        const walk = (node) => {
+            if (node.type === 'text') {
+                parts.push(node.content);
+                return;
+            }
+            if (node.type === 'comment') {
+                return;
+            }
+            if (node.type === 'tag-open') {
+                const name = node.name.toLowerCase();
+                if (node.scriptBlock || name === 'script' || name === 'style' || node.styleBlock) {
+                    return;
+                }
+                if (name === 'br') {
+                    parts.push('\n');
+                    return;
+                }
+                const isBlock = INNERTEXT_BLOCK_TAGS.has(name);
+                if (isBlock) {
+                    pushBlockGap();
+                }
+                for (const ch of node.children) {
+                    walk(ch);
+                }
+                if (isBlock) {
+                    parts.push('\n');
+                }
+                return;
+            }
+            if (node.children) {
+                for (const ch of node.children) {
+                    walk(ch);
+                }
+            }
+        };
+
+        for (const ch of openTag.children) {
+            walk(ch);
+        }
+
+        return parts.join('').replace(/\n{3,}/g, '\n\n').trimEnd();
+    }
+
+    /**
+     * HTML serialization of this element's contents (no own outer tags). Matches typical
+     * Element.innerHTML (comments omitted).
+     * @returns {string}
+     */
+    get innerHTML() {
+        const target = this.#resolveOpenTagForInteriorRead();
+        return target.innerHtml(false);
+    }
+
+    /**
+     * Parses HTML and replaces this element's interior children. Does not move the adjacent
+     * tag-close node. Void elements ignore assignment. Script-like blocks store literal text.
+     * @param {string} html - HTML fragment
+     */
+    set innerHTML(html) {
+        const openTag = this.#resolveOpenTagForInteriorMutation();
+        if (!openTag) {
+            return;
+        }
+
+        const fragment = String(html);
+        const root = this.#findRoot();
+
+        if (openTag.scriptBlock) {
+            this.#detachInteriorChildren(openTag);
+            const textNode = new Node('text');
+            textNode.content = fragment;
+            openTag.appendChild(textNode);
+            return;
+        }
+
+        if (openTag.styleBlock || openTag.name === 'style') {
+            const parser = this.#requireHtmlParser(root);
+            if (typeof parser.parseCss !== 'function') {
+                throw new Error('Parser does not support parseCss(); cannot assign innerHTML on style');
+            }
+            const cssRoot = parser.parseCss(fragment);
+            this.#detachInteriorChildren(openTag);
+            const toAdopt = [...cssRoot.children];
+            for (const child of toAdopt) {
+                openTag.appendChild(child);
+            }
+            openTag.styleBlock = true;
+            return;
+        }
+
+        const parser = this.#requireHtmlParser(root);
+        const parsedRoot = parser.parse(fragment);
+        const nodesToInsert = [...parsedRoot.children];
+        this.#detachInteriorChildren(openTag);
+        for (const node of nodesToInsert) {
+            openTag.appendChild(node);
+        }
+    }
+
+    /**
+     * Approximates Element.innerText for this element's subtree.
+     * @returns {string}
+     */
+    get innerText() {
+        const target = this.#resolveOpenTagForInteriorRead();
+        return this.#collectInnerTextFrom(target);
+    }
+
+    /**
+     * Sets plain text, or if the string looks like markup, parses it like innerHTML. When the
+     * element already has a single text child, plain-text updates only mutate that node's content.
+     * @param {string|null|undefined} value - Text or markup-like string
+     */
+    set innerText(value) {
+        const str = value === null || value === undefined ? '' : String(value);
+        if (str.includes('<') && INNERTEXT_STRING_MAYBE_HTML.test(str)) {
+            this.innerHTML = str;
+            return;
+        }
+
+        const openTag = this.#resolveOpenTagForInteriorMutation();
+        if (!openTag) {
+            return;
+        }
+
+        if (openTag.children.length === 1 && openTag.children[0].type === 'text') {
+            openTag.children[0].content = str;
+            return;
+        }
+
+        this.#detachInteriorChildren(openTag);
+        const textNode = new Node('text');
+        textNode.content = str;
+        openTag.appendChild(textNode);
+    }
+
+    /**
      * Inserts one or more nodes after this node.
      * Accepts individual nodes or arrays of nodes.
      *
@@ -1462,15 +1721,19 @@ class Node {
             if (node.parent) {
                 const isSameParent = node.parent === targetNode.parent;
 
-                // Extract the node (and its closing tag if applicable)
-                const extracted = this.#extractNode(node);
-                closingTag = extracted.closing;
-                whitespace = extracted.whitespace;
+                let startIndex = -1;
+                let removedCount = 0;
+                ({
+                    closing: closingTag,
+                    whitespace,
+                    startIndex,
+                    removedCount
+                } = this.#extractNode(node));
 
                 // If we extracted from the same parent and it was before our insert point,
                 // we need to adjust the insert index
-                if (isSameParent && extracted.startIndex !== -1 && extracted.startIndex < insertIndex) {
-                    insertIndex -= extracted.removedCount;
+                if (isSameParent && startIndex !== -1 && startIndex < insertIndex) {
+                    insertIndex -= removedCount;
                 }
             }
 
@@ -1561,15 +1824,19 @@ class Node {
             if (node.parent) {
                 const isSameParent = node.parent === targetNode.parent;
 
-                // Extract the node (and its closing tag if applicable)
-                const extracted = this.#extractNode(node);
-                closingTag = extracted.closing;
-                whitespace = extracted.whitespace;
+                let startIndex = -1;
+                let removedCount = 0;
+                ({
+                    closing: closingTag,
+                    whitespace,
+                    startIndex,
+                    removedCount
+                } = this.#extractNode(node));
 
                 // If we extracted from the same parent and it was before our insert point,
                 // we need to adjust the insert index
-                if (isSameParent && extracted.startIndex !== -1 && extracted.startIndex < insertIndex) {
-                    insertIndex -= extracted.removedCount;
+                if (isSameParent && startIndex !== -1 && startIndex < insertIndex) {
+                    insertIndex -= removedCount;
                 }
             }
 
@@ -1635,7 +1902,7 @@ class Node {
 
         // Find parser from root node
         const root = this.#findRoot();
-        const parser = root.parser;
+        const { parser } = root;
         if (!parser || typeof parser.parse !== 'function') {
             throw new Error('Parser not found. Node tree must be created via parser.parse()');
         }

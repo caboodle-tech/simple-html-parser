@@ -359,6 +359,17 @@ class SimpleHtmlParser {
     }
 
     /**
+     * Parses a CSS string into a css-root node, same shape as children of a &lt;style&gt; element.
+     * Used when assigning {@link Node#innerHTML} on style nodes so the CSS tree stays consistent.
+     * @param {string} css - CSS source
+     * @returns {Node} Root node with type css-root whose children are rules and at-rules
+     */
+    parseCss(css) {
+        const cssParser = new CSSParser();
+        return cssParser.parse(css);
+    }
+
+    /**
      * Gets the version of the SimpleHtmlParser library.
      * @returns {string} Version string
      */
