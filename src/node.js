@@ -294,9 +294,20 @@ class Node {
         const newline = singleLine ? ' ' : '\n';
         const name = atRuleNode.cssName || '';
         const params = (atRuleNode.cssParams || '').trim();
+        const form = atRuleNode.cssAtRuleForm;
+        const hasChildren = Boolean(atRuleNode.children?.length);
+        const statementAtRules = new Set(['import', 'charset', 'namespace']);
 
-        const statementAtRules = ['import', 'charset', 'namespace'];
-        if (statementAtRules.includes(name)) {
+        let resolvedForm = 'block';
+        if (form === 'statement' || form === 'block') {
+            resolvedForm = form;
+        } else if (hasChildren) {
+            resolvedForm = 'block';
+        } else if (statementAtRules.has(name) || name === 'layer') {
+            resolvedForm = 'statement';
+        }
+
+        if (resolvedForm === 'statement') {
             return `${spaces}@${name}${params ? ` ${params}` : ''};`;
         }
 

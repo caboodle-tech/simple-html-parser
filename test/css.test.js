@@ -107,6 +107,55 @@ test('CSSParser - At-rules', async(t) => {
         assert.ok(importRule);
         assert.ok(importRule.cssParams.includes('styles.css'));
     });
+
+    await t.test('detects statement and block at-rule forms', () => {
+        const css = `
+@layer base;
+@media (min-width: 700px) { .x { color: red; } }
+`;
+        const tree = parser.parse(css);
+        const layerRule = tree.children.find((c) => { return c.cssName === 'layer'; });
+        const mediaRule = tree.children.find((c) => { return c.cssName === 'media'; });
+
+        assert.ok(layerRule);
+        assert.ok(mediaRule);
+        assert.strictEqual(layerRule.cssAtRuleForm, 'statement');
+        assert.strictEqual(mediaRule.cssAtRuleForm, 'block');
+    });
+
+    await t.test('parses at-rule prelude with comments and quotes safely', () => {
+        const css = `
+@custom-media /* c1 */ --small-screen "(max-width: 30em)";
+@media screen and (min-width: 30em) {
+    .x { color: red; }
+}`;
+        const tree = parser.parse(css);
+        const customMedia = tree.children.find((c) => { return c.cssName === 'custom-media'; });
+        const mediaRule = tree.children.find((c) => { return c.cssName === 'media'; });
+
+        assert.ok(customMedia);
+        assert.strictEqual(customMedia.cssAtRuleForm, 'statement');
+        assert.ok(customMedia.cssParams.includes('--small-screen'));
+        assert.ok(customMedia.cssParams.includes('"(max-width: 30em)"'));
+        assert.ok(mediaRule);
+        assert.strictEqual(mediaRule.cssAtRuleForm, 'block');
+    });
+
+    await t.test('does not terminate at-rule prelude on semicolon inside quoted strings', () => {
+        const css = `
+@import url("theme;a.css");
+.x { color: red; }`;
+        const tree = parser.parse(css);
+        const importRule = tree.children.find((c) => { return c.cssName === 'import'; });
+        const rule = tree.children.find((c) => { return c.type === 'css-rule'; });
+
+        assert.ok(importRule);
+        assert.strictEqual(importRule.cssAtRuleForm, 'statement');
+        assert.ok(importRule.cssParams.includes('url("theme;a.css")'));
+        assert.ok(rule);
+        assert.strictEqual(rule.cssSelector, '.x');
+        assert.strictEqual(rule.cssDeclarations.color, 'red');
+    });
 });
 
 test('CSSParser - Comments', async(t) => {
@@ -502,6 +551,69 @@ p { padding: 5px; }
         assert.ok(output.includes('font-weight: bold'), 'output should contain declaration');
     });
 
+    await t.test('round-trips @scope with nested :scope and nested selector blocks', () => {
+        const html = `<style>
+    .scope-demo {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-block: 1rem;
+    }
+    @scope (.scope-demo-info) {
+        :scope {
+            background: #dbeafe;
+            border: 2px solid #2563eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+        .message {
+            color: #1e40af;
+            font-weight: 600;
+        }
+    }
+    @scope (.scope-demo-warn) {
+        :scope {
+            background: #fef3c7;
+            border: 2px solid #d97706;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+        .message {
+            color: #92400e;
+            font-weight: 600;
+        }
+    }
+</style>`;
+        const dom = parser.parse(html);
+        const style = dom.querySelector('style');
+        const scopeRules = style.cssFindAtRules('scope');
+        const output = dom.toHtml();
+        const styleStart = output.indexOf('<style>');
+        const styleEnd = output.indexOf('</style>');
+        const cssOutput = output.substring(styleStart + '<style>'.length, styleEnd);
+
+        assert.strictEqual(scopeRules.length, 2, 'should keep both @scope blocks');
+
+        for (const scopeRule of scopeRules) {
+            const selectors = scopeRule.children
+                .filter((child) => { return child.type === 'css-rule'; })
+                .map((child) => { return child.cssSelector; });
+
+            assert.ok(selectors.includes(':scope'), 'scope block should preserve nested :scope rule');
+            assert.ok(selectors.includes('.message'), 'scope block should preserve nested .message rule');
+        }
+
+        let braceBalance = 0;
+        for (const char of cssOutput) {
+            if (char === '{') {
+                braceBalance += 1;
+            } else if (char === '}') {
+                braceBalance -= 1;
+            }
+        }
+        assert.strictEqual(braceBalance, 0, 'serialized CSS should keep balanced braces');
+    });
+
     await t.test('statement @layer name; round-trips (parsed as at-rule, may emit block)', () => {
         const html = `<style>
 @layer base;
@@ -513,6 +625,46 @@ p { padding: 5px; }
         assert.ok(output.includes('@layer'), 'output should contain @layer');
         assert.ok(output.includes('base'), 'output should contain layer name');
         assert.ok(output.includes('.rule'), 'output should contain following rule');
+    });
+
+    await t.test('preserves statement and block at-rules in nested modern CSS', () => {
+        const html = `<style>
+@media (min-width: 700px) {
+    @layer nestedLayer;
+    @supports selector(:scope) {
+        @scope (.host) {
+            :scope { color: rebeccapurple; }
+            .item:is(.a, .b) { margin: 0; }
+            .item:where(.c, .d) { padding: 0; }
+        }
+    }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@media'), 'output should preserve @media');
+        assert.ok(output.includes('@layer nestedLayer;'), 'output should preserve nested statement @layer');
+        assert.ok(output.includes('@supports'), 'output should preserve @supports');
+        assert.ok(output.includes('@scope'), 'output should preserve @scope');
+        assert.ok(output.includes(':scope'), 'output should preserve nested :scope selector');
+        assert.ok(output.includes(':is(.a, .b)'), 'output should preserve :is selector');
+        assert.ok(output.includes(':where(.c, .d)'), 'output should preserve :where selector');
+    });
+
+    await t.test('preserves unknown statement at-rules across round-trip', () => {
+        const html = `<style>
+@custom-media --narrow (max-width: 35em);
+@media (--narrow) {
+    .narrow { width: 100%; }
+}
+</style>`;
+        const dom = parser.parse(html);
+        const output = dom.toHtml();
+
+        assert.ok(output.includes('@custom-media --narrow (max-width: 35em);'), 'output should preserve unknown statement at-rule');
+        assert.ok(output.includes('@media (--narrow)'), 'output should preserve following block at-rule');
+        assert.ok(output.includes('.narrow'), 'output should preserve nested selector');
     });
 
     await t.test('cssToString singleLine true emits at-rules', () => {

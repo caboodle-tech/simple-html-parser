@@ -7,7 +7,7 @@ const REGEX = {
     whitespace: /\s/
 };
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /**
  * CSS Parser that converts CSS strings into a tree structure using Node objects.
@@ -102,27 +102,37 @@ class CSSParser {
      */
     #isNestedRule() {
         let tempPos = this.#pos;
-        let depth = 0;
-        let foundColon = false;
-        let foundBrace = false;
+        let parenDepth = 0;
+        let bracketDepth = 0;
 
-        // Look ahead to see if we find a '{' before a ':'
+        // Look ahead to see if the next top-level boundary is a block open.
         while (tempPos < this.#length) {
             const char = this.#css[tempPos];
+            const nextChar = tempPos + 1 < this.#length ? this.#css[tempPos + 1] : '';
+
+            if (char === '"' || char === '\'') {
+                tempPos = this.#skipStringAt(tempPos, char);
+                continue;
+            }
+
+            if (char === '/' && nextChar === '*') {
+                tempPos = this.#skipCommentAt(tempPos);
+                continue;
+            }
 
             if (char === '(') {
-                depth += 1;
+                parenDepth += 1;
             } else if (char === ')') {
-                depth -= 1;
-            } else if (depth === 0) {
-                if (char === ':' && this.#css[tempPos + 1] !== ':') {
-                    // Found a colon (but not ::pseudo-element)
-                    foundColon = true;
-                    break;
-                } else if (char === '{') {
-                    foundBrace = true;
-                    break;
-                } else if (char === ';' || char === '}') {
+                parenDepth = Math.max(parenDepth - 1, 0);
+            } else if (char === '[') {
+                bracketDepth += 1;
+            } else if (char === ']') {
+                bracketDepth = Math.max(bracketDepth - 1, 0);
+            } else if (parenDepth === 0 && bracketDepth === 0) {
+                if (char === '{') {
+                    return true;
+                }
+                if (char === ';' || char === '}') {
                     break;
                 }
             }
@@ -130,9 +140,7 @@ class CSSParser {
             tempPos += 1;
         }
 
-        // If we found a brace before a colon, it's a nested rule
-        // If we found a colon, it's a declaration
-        return foundBrace && !foundColon;
+        return false;
     }
 
     /**
@@ -154,52 +162,23 @@ class CSSParser {
         }
 
         const name = this.#css.substring(nameStart, this.#pos);
-        this.#skipWhitespace();
-
         const atRule = new Node('css-at-rule', name, {}, parent);
         atRule.cssName = name;
+        this.#skipWhitespace();
 
-        // Special handling for @import, @charset, etc. (statement-style at-rules)
-        if (name === 'import' || name === 'charset' || name === 'namespace') {
-            // These don't have blocks, just read until semicolon
-            const start = this.#pos;
-            while (this.#pos < this.#length && this.#peek() !== ';') {
-                this.#pos += 1;
-            }
-            atRule.cssParams = this.#css.substring(start, this.#pos).trim();
+        const atRulePrelude = this.#readAtRulePrelude();
+        atRule.cssParams = atRulePrelude.params;
+        atRule.cssAtRuleForm = atRulePrelude.form;
+
+        if (atRulePrelude.form === 'statement') {
             if (this.#peek() === ';') {
                 this.#pos += 1;
             }
             return atRule;
         }
 
-        // Get parameters (e.g., media query conditions, keyframe name)
-        const paramsStart = this.#pos;
-        let depth = 0;
-        let inParams = true;
-
-        while (this.#pos < this.#length && inParams) {
-            const char = this.#peek();
-
-            if (char === '(') {
-                depth += 1;
-            } else if (char === ')') {
-                depth -= 1;
-            } else if (char === '{' && depth === 0) {
-                inParams = false;
-                break;
-            }
-
-            this.#pos += 1;
-        }
-
-        atRule.cssParams = this.#css.substring(paramsStart, this.#pos).trim();
-
-        this.#skipWhitespace();
-
-        // Parse the block content
         if (this.#peek() === '{') {
-            this.#pos += 1; // Skip opening brace
+            this.#pos += 1;
             this.#parseBlock(atRule);
         }
 
@@ -241,6 +220,8 @@ class CSSParser {
                 const atRule = this.#parseAtRule(rule);
                 if (atRule) {
                     rule.appendChild(atRule);
+                } else {
+                    this.#recoverToBoundary();
                 }
                 continue;
             }
@@ -254,6 +235,8 @@ class CSSParser {
                 const nestedRule = this.#parseRule(rule);
                 if (nestedRule) {
                     rule.appendChild(nestedRule);
+                } else {
+                    this.#recoverToBoundary();
                 }
             } else {
                 // Parse as declaration
@@ -363,16 +346,32 @@ class CSSParser {
         // Parse selector
         const selectorStart = this.#pos;
         let depth = 0;
+        let bracketDepth = 0;
 
         while (this.#pos < this.#length) {
             const char = this.#peek();
+            const nextChar = this.#peek(1);
+
+            if (char === '"' || char === '\'') {
+                this.#pos = this.#skipStringAt(this.#pos, char);
+                continue;
+            }
+
+            if (char === '/' && nextChar === '*') {
+                this.#pos = this.#skipCommentAt(this.#pos);
+                continue;
+            }
 
             // Track parentheses depth for pseudo-classes/functions
             if (char === '(') {
                 depth += 1;
             } else if (char === ')') {
-                depth -= 1;
-            } else if (char === '{' && depth === 0) {
+                depth = Math.max(depth - 1, 0);
+            } else if (char === '[') {
+                bracketDepth += 1;
+            } else if (char === ']') {
+                bracketDepth = Math.max(bracketDepth - 1, 0);
+            } else if (char === '{' && depth === 0 && bracketDepth === 0) {
                 break;
             }
 
@@ -403,6 +402,120 @@ class CSSParser {
     #peek(offset = 0) {
         const pos = this.#pos + offset;
         return pos < this.#length ? this.#css[pos] : '';
+    }
+
+    /**
+     * Reads an at-rule prelude and detects statement or block form.
+     * @returns {{ params: string, form: string }}
+     */
+    #readAtRulePrelude() {
+        const start = this.#pos;
+        let parenDepth = 0;
+        let bracketDepth = 0;
+
+        while (this.#pos < this.#length) {
+            const char = this.#peek();
+            const nextChar = this.#peek(1);
+
+            if (char === '"' || char === '\'') {
+                this.#pos = this.#skipStringAt(this.#pos, char);
+                continue;
+            }
+
+            if (char === '/' && nextChar === '*') {
+                this.#pos = this.#skipCommentAt(this.#pos);
+                continue;
+            }
+
+            if (char === '(') {
+                parenDepth += 1;
+            } else if (char === ')') {
+                parenDepth = Math.max(parenDepth - 1, 0);
+            } else if (char === '[') {
+                bracketDepth += 1;
+            } else if (char === ']') {
+                bracketDepth = Math.max(bracketDepth - 1, 0);
+            } else if (parenDepth === 0 && bracketDepth === 0) {
+                if (char === ';') {
+                    return {
+                        params: this.#css.substring(start, this.#pos).trim(),
+                        form: 'statement'
+                    };
+                }
+                if (char === '{') {
+                    return {
+                        params: this.#css.substring(start, this.#pos).trim(),
+                        form: 'block'
+                    };
+                }
+                if (char === '}') {
+                    return {
+                        params: this.#css.substring(start, this.#pos).trim(),
+                        form: 'statement'
+                    };
+                }
+            }
+
+            this.#pos += 1;
+        }
+
+        return {
+            params: this.#css.substring(start, this.#pos).trim(),
+            form: 'statement'
+        };
+    }
+
+    /**
+     * Skips a quoted string while respecting escapes.
+     * @param {number} start - Position of quote character
+     * @param {string} quoteChar - Quote character used for the string
+     * @returns {number} Position after the string
+     */
+    #skipStringAt(start, quoteChar) {
+        let index = start + 1;
+        while (index < this.#length) {
+            const char = this.#css[index];
+            if (char === '\\') {
+                index += 2;
+                continue;
+            }
+            if (char === quoteChar) {
+                index += 1;
+                break;
+            }
+            index += 1;
+        }
+        return index;
+    }
+
+    /**
+     * Skips a block comment and returns the next index.
+     * @param {number} start - Position of the initial slash
+     * @returns {number} Position after comment end
+     */
+    #skipCommentAt(start) {
+        const end = this.#css.indexOf('*/', start + 2);
+        if (end === -1) {
+            return this.#length;
+        }
+        return end + 2;
+    }
+
+    /**
+     * Advances parser to the next safe boundary when a parse branch fails.
+     */
+    #recoverToBoundary() {
+        while (this.#pos < this.#length) {
+            const char = this.#peek();
+            if (char === ';') {
+                this.#pos += 1;
+                return;
+            }
+            if (char === '}') {
+                return;
+            }
+            this.#pos += 1;
+        }
     }
 
     /**

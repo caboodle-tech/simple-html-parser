@@ -9,7 +9,7 @@ const REGEX = {
     whitespace: /\s+/
 };
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 
 // eslint-disable-next-line max-len
 const VOID_ELEMS = ['img', 'br', 'hr', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'param', 'source', 'track', 'wbr'];
